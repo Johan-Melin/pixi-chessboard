@@ -79,6 +79,10 @@ Give the host a width and square aspect ratio, for example `#board { width: min(
 - Outside release, touch cancellation, blur, and resizing during a drag return the held piece. Keyboard piece movement is not implemented yet.
 - Artwork has baked-in scanlines. Theme layout, orientation, effect tuning, and annotations remain fixed until needed.
 
+## Hosting the visual playground
+
+The repository's `vercel.json` builds the website using `npm run build:playground` and publishes `playground-dist`. The default `npm run build` generates the reusable library in `dist`; that directory is not a website. In the Vercel dashboard, use the Vite framework preset and the repository root directory. The playground allows free movement; the separate chess integration demo is a different project and is not included in this repository.
+
 ## Tests and local packaging
 
 ```sh

@@ -44,7 +44,10 @@ async function main() {
   const pieces:{id:string;square:string;kind:Kind;side:Side}[]=[];
   type Pose={y:number;xScale:number;yScale:number};
   type Keyframe=Pose & {at:number};
-  type Actor={id:string;row:number;col:number;root:Container;visual:Container;sprite:Sprite;shadow:Graphics;filter:ColorMatrixFilter;brightness:number;pose:Pose;animation?:{start:number;keys:Keyframe[]}};
+  type Actor={id:string;row:number;col:number;homeRow:number;homeCol:number;root:Container;visual:Container;sprite:Sprite;shadow:Graphics;filter:ColorMatrixFilter;brightness:number;pose:Pose;
+    stretch:number;tilt:number;velocityX:number;velocityY:number;lastMotion:number;
+    travel?:{start:number;duration:number;fromX:number;fromY:number;toX:number;toY:number};
+    animation?:{start:number;keys:Keyframe[]}};
   const actors:Actor[]=[];
   function place(side:Side,kind:Kind,col:number,row:number) {
     const id=`${side}-${kind}-${col}-${row}`;
@@ -65,7 +68,7 @@ async function main() {
     visual.addChild(sprite); root.addChild(shadow,visual); pieceLayer.addChild(root);
     const filter=new ColorMatrixFilter();
     sprite.filters=[filter];
-    actors.push({id,row,col,root,visual,sprite,shadow,filter,brightness:1,pose:{y:0,xScale:1,yScale:1}});
+    actors.push({id,row,col,homeRow:row,homeCol:col,root,visual,sprite,shadow,filter,brightness:1,pose:{y:0,xScale:1,yScale:1},stretch:0,tilt:0,velocityX:0,velocityY:0,lastMotion:0});
     pieces.push({id,square:`${'abcdefgh'[col]}${8-row}`,kind,side});
   }
   const back:Kind[]=['r','n','b','q','k','b','n','r'];
@@ -82,16 +85,30 @@ async function main() {
   ctx.drawImage(image,0,0);
   const pixels=ctx.getImageData(0,0,image.width,image.height).data;
   let hovered:Actor|undefined, held:Actor|undefined, pointerId:number|undefined;
+  type Cell={row:number;col:number};
+  let drag:{startClientX:number;startClientY:number;offsetX:number;offsetY:number;active:boolean;candidate?:Cell}|undefined;
+  const status=document.querySelector<HTMLElement>('#status')!;
+  const homePosition=(actor:Actor)=>({x:inset+(actor.col+.5)*square,y:inset+(actor.row+.82)*square});
+  const canDrop=(cell:Cell,actor:Actor)=>!actors.some(other=>other!==actor&&other.row===cell.row&&other.col===cell.col);
   const reduced=window.matchMedia('(prefers-reduced-motion: reduce)');
   const rest:Pose={y:0,xScale:1,yScale:1};
   function animate(actor:Actor,keys:Keyframe[]) {
     if(reduced.matches){actor.pose={...keys[keys.length-1]};actor.animation=undefined;return;}
     actor.animation={start:performance.now(),keys:[{...actor.pose,at:0},...keys]};
   }
-  function hit(event:PointerEvent) {
+  function boardPoint(event:PointerEvent) {
     const rect=app.canvas.getBoundingClientRect();
     const x=((event.clientX-rect.left)*app.screen.width/rect.width-scene.x)/scene.scale.x;
     const y=((event.clientY-rect.top)*app.screen.height/rect.height-scene.y)/scene.scale.y;
+    return {x,y};
+  }
+  function cellAt(event:PointerEvent):Cell|undefined {
+    const {x,y}=boardPoint(event);
+    const col=Math.floor((x-inset)/square),row=Math.floor((y-inset)/square);
+    if(col>=0&&col<8&&row>=0&&row<8)return {col,row};
+  }
+  function hit(event:PointerEvent) {
+    const {x,y}=boardPoint(event);
     for(const actor of [...actors].sort((a,b)=>b.root.zIndex-a.root.zIndex)) {
       const f=actor.sprite.texture.frame, s=actor.sprite.scale.x;
       const px=Math.floor((x-actor.root.x)/s+f.width/2);
@@ -106,11 +123,31 @@ async function main() {
     highlight.clear();
     if(active)highlight.rect(inset+active.col*square+2,inset+active.row*square+2,square-4,square-4)
       .fill({color:0xeacb83,alpha:held?0.22:0.13}).stroke({color:0xf7df9b,width:2,alpha:0.85});
+    if(held&&drag?.active&&drag.candidate){
+      const {row,col}=drag.candidate;
+      const color=canDrop(drag.candidate,held)?0xa8d9b0:0xeb877a;
+      highlight.rect(inset+col*square+3,inset+row*square+3,square-6,square-6)
+        .fill({color,alpha:.22}).stroke({color,width:3,alpha:.95});
+    }
     app.canvas.style.cursor=held?'grabbing':hovered?'grab':'default';
   }
   app.canvas.style.touchAction='none';
+  function moveHeld(event:PointerEvent) {
+    if(!held||!drag||event.pointerId!==pointerId)return;
+    if(!drag.active&&Math.hypot(event.clientX-drag.startClientX,event.clientY-drag.startClientY)<6)return;
+    drag.active=true;
+    const p=boardPoint(event),now=performance.now();
+    const x=p.x-drag.offsetX,y=p.y-drag.offsetY;
+    const elapsed=Math.max(8,now-held.lastMotion);
+    held.velocityX=(x-held.root.x)/elapsed;
+    held.velocityY=(y-held.root.y)/elapsed;
+    held.lastMotion=now;
+    held.root.position.set(x,y);
+    drag.candidate=cellAt(event);
+    feedback();
+  }
   app.canvas.addEventListener('pointermove',event=>{
-    if(pointerId!==undefined)return;
+    if(pointerId!==undefined){moveHeld(event);return;}
     hovered=event.pointerType==='touch'?undefined:hit(event);feedback();
   });
   app.canvas.addEventListener('pointerleave',()=>{if(!held){hovered=undefined;feedback();}});
@@ -118,6 +155,9 @@ async function main() {
     if(pointerId!==undefined||event.button!==0||!event.isPrimary)return;
     const actor=hit(event);if(!actor)return;
     event.preventDefault();pointerId=event.pointerId;held=actor;hovered=actor;
+    const p=boardPoint(event);
+    drag={startClientX:event.clientX,startClientY:event.clientY,offsetX:p.x-actor.root.x,offsetY:p.y-actor.root.y,active:false};
+    actor.travel=undefined;actor.velocityX=0;actor.velocityY=0;actor.lastMotion=performance.now();
     app.canvas.setPointerCapture(event.pointerId);
     actor.root.zIndex=1000;
     animate(actor,[{at:45,y:0,xScale:1.07,yScale:0.93},{at:165,y:-square*0.15,xScale:0.98,yScale:1.04}]);
@@ -126,9 +166,25 @@ async function main() {
   function release(event?:PointerEvent) {
     if(pointerId===undefined||(event&&event.pointerId!==pointerId))return;
     const oldId=pointerId,actor=held!;
+    if(event?.type==='pointerup')moveHeld(event);
+    const wasDragging=drag?.active;
+    const destination=event?.type==='pointerup'&&wasDragging?cellAt(event):undefined;
+    const accepted=destination&&canDrop(destination,actor);
+    if(accepted){
+      actor.row=destination.row;actor.col=destination.col;
+      pieces.find(piece=>piece.id===actor.id)!.square=`${'abcdefgh'[actor.col]}${8-actor.row}`;
+      status.textContent=`Placed on ${'abcdefgh'[actor.col]}${8-actor.row}`;
+    }else if(wasDragging)status.textContent='Returned to original square';
     held=undefined;pointerId=undefined;
-    animate(actor,[{at:80,...rest},{at:130,y:0,xScale:1.07,yScale:0.94},{at:250,...rest}]);
-    hovered=event?.type==='pointerup'&&event.pointerType!=='touch'?hit(event):undefined;
+    drag=undefined;actor.velocityX=0;actor.velocityY=0;
+    const target=homePosition(actor),duration=wasDragging?(accepted?100:180):0;
+    if(duration&&!reduced.matches)actor.travel={start:performance.now(),duration,fromX:actor.root.x,fromY:actor.root.y,toX:target.x,toY:target.y};
+    else {actor.root.position.set(target.x,target.y);actor.travel=undefined;}
+    const settle:Keyframe[]=[];
+    if(duration)settle.push({at:duration,...actor.pose});
+    settle.push({at:duration+80,...rest},{at:duration+130,y:0,xScale:1.07,yScale:0.94},{at:duration+250,...rest});
+    animate(actor,settle);
+    hovered=!wasDragging&&event?.type==='pointerup'&&event.pointerType!=='touch'?hit(event):undefined;
     if(app.canvas.hasPointerCapture(oldId))app.canvas.releasePointerCapture(oldId);
     feedback();
   }
@@ -137,9 +193,26 @@ async function main() {
   app.canvas.addEventListener('lostpointercapture',release);
   window.addEventListener('blur',()=>{release();hovered=undefined;feedback();});
   document.addEventListener('visibilitychange',()=>{if(document.hidden){release();hovered=undefined;feedback();}});
+  document.querySelector<HTMLButtonElement>('#reset')!.addEventListener('click',()=>{
+    release();hovered=undefined;
+    for(const actor of actors){
+      actor.row=actor.homeRow;actor.col=actor.homeCol;
+      actor.animation=undefined;actor.travel=undefined;actor.pose={...rest};
+      actor.stretch=0;actor.tilt=0;actor.velocityX=0;actor.velocityY=0;
+      const p=homePosition(actor);actor.root.position.set(p.x,p.y);
+      actor.root.zIndex=actor.row*8+actor.col;
+      pieces.find(piece=>piece.id===actor.id)!.square=`${'abcdefgh'[actor.col]}${8-actor.row}`;
+    }
+    status.textContent='Starting position restored';feedback();
+  });
   app.ticker.add(ticker=>{
     const now=performance.now();
     for(const actor of actors){
+      if(actor.travel){
+        const travel=actor.travel,t=Math.min(1,(now-travel.start)/travel.duration),ease=1-(1-t)**3;
+        actor.root.position.set(travel.fromX+(travel.toX-travel.fromX)*ease,travel.fromY+(travel.toY-travel.fromY)*ease);
+        if(t===1)actor.travel=undefined;
+      }
       const animation=actor.animation;
       if(animation){
         const elapsed=now-animation.start, keys=animation.keys;
@@ -149,7 +222,15 @@ async function main() {
           actor.pose={y:a.y+(b.y-a.y)*ease,xScale:a.xScale+(b.xScale-a.xScale)*ease,yScale:a.yScale+(b.yScale-a.yScale)*ease};}
       }
       const {y,xScale,yScale}=actor.pose;
-      actor.visual.y=y;actor.visual.scale.set(xScale,yScale);
+      const moving=actor===held&&drag?.active&&!reduced.matches;
+      const decay=Math.exp(-Math.max(0,now-actor.lastMotion)/70);
+      const vx=moving?actor.velocityX*decay:0,vy=moving?actor.velocityY*decay:0;
+      const targetStretch=Math.max(-.1,Math.min(.1,(Math.abs(vx)-Math.abs(vy))*.055));
+      const smoothing=1-Math.exp(-ticker.deltaMS/55);
+      actor.stretch+=(targetStretch-actor.stretch)*smoothing;
+      actor.tilt+=(Math.max(-.12,Math.min(.12,vx*.06))-actor.tilt)*smoothing;
+      actor.visual.y=y;actor.visual.scale.set(xScale*(1+actor.stretch),yScale*(1-actor.stretch));
+      actor.visual.rotation=actor.tilt;
       const lift=Math.max(0,-y/(square*.15));
       actor.shadow.scale.set(1+lift*.18,1+lift*.08);actor.shadow.alpha=1-lift*.3;
       if(actor!==held&&!actor.animation)actor.root.zIndex=actor.row*8+actor.col;
@@ -161,6 +242,8 @@ async function main() {
   app.start();
   function resize() {
     const size=Math.max(1,host.clientWidth);
+    // A changed viewport invalidates the grab offset: safely return the held piece.
+    if(pointerId!==undefined&&Math.abs(size-app.screen.width)>.5)release();
     app.renderer.resize(size,size);
     // Room above the frame lets the top rank overlap without canvas clipping.
     const scale=size/800;
@@ -170,9 +253,9 @@ async function main() {
   }
   new ResizeObserver(resize).observe(host);
   resize();
-  // Read-only diagnostics for validating the static scene.
+  // Read-only diagnostics for validating interaction and board occupancy.
   Object.assign(window,{boardDebug:{pieces,frames,pieceCount:pieceLayer.children.length,
-    snapshot:()=>({hovered:hovered?.id,held:held?.id,actors:actors.map(a=>({id:a.id,y:a.visual.y,scaleX:a.visual.scale.x,scaleY:a.visual.scale.y,shadowY:a.shadow.y,shadowAlpha:a.shadow.alpha,
+    snapshot:()=>({hovered:hovered?.id,held:held?.id,dragging:drag?.active,candidate:drag?.candidate,board:{x:scene.x,y:scene.y,scale:scene.scale.x,inset,square},actors:actors.map(a=>({id:a.id,row:a.row,col:a.col,rotation:a.visual.rotation,y:a.visual.y,scaleX:a.visual.scale.x,scaleY:a.visual.scale.y,shadowY:a.shadow.y,shadowAlpha:a.shadow.alpha,
       x:scene.x+a.root.x*scene.scale.x,baseY:scene.y+a.root.y*scene.scale.y,height:a.sprite.height*scene.scale.y}))})}});
   host.dataset.ready='true';
 }

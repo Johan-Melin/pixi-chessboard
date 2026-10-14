@@ -1,17 +1,101 @@
-# Retro chess playground — step 4
+# pixi-chessboard
 
-Run `npm install`, then `npm run dev`. Run `npm run build` for a checked production build.
+A small, application-controlled chessboard renderer for PixiJS v8. It displays the position you supply and animates interaction. It does not decide legal moves, turns, check, or captures, and has no chess-logic dependency.
 
-PixiJS v8 animation playground starting with all 32 pieces. Hover to brighten a piece and highlight its square. Press and hold to lift, then drag to any square. Motion adds subtle speed-responsive stretch and tilt. The ground shadow follows beneath the lifted piece. Release to snap into place, lower, and settle with off-white pixel dust at ground contact. Dropping onto another piece automatically captures it, regardless of color: the target flashes white and breaks into palette-colored fragments. Supports mouse and touch; no chess rules or turns.
+The retro renderer includes hover highlighting, whole-square picking, lift, drag stretch/tilt, shadows, settling, landing dust, and removal effects. The playground demonstrates free movement and automatic captures through its own controller.
 
-Green destination highlights indicate an empty square; amber indicates a capture. Outside drops return the piece to its original square. Touch cancellation, lost pointer capture, window blur, and resizing during a hold also return it safely. Reset board restores all 32 pieces and cancels ongoing motion, capture visuals, and particles. A six-pixel threshold separates holding from dragging, and the grab offset is preserved so picking up from the side of a square does not cause a jump.
+## Development
 
-Interaction accepts both the visible piece silhouette and the surrounding occupied square. The frontmost visible piece wins where silhouettes overlap; otherwise the square selects its occupant. Empty squares and the frame do not select pieces. Logical square occupancy is separate from temporary drag position, and drawing order follows the destination rank after settling. Reduced-motion preferences suppress travel, lift, landing, stretch, tilt, flashes, and particles while captures remain functional. Extra canvas padding accommodates the raised top rank.
+```sh
+npm install
+npm run dev
+npm run build
+npm run build:playground
+```
 
-Transient effects live in `src/effects.ts` and use independent board coordinates. Captured actors stop receiving input immediately; a detached visual finishes the flash and burst. Dust is scheduled at ground contact and cancelled if the piece is picked up before landing. Particles expire automatically and are capped at 240. Reset clears all pending effects, and stale bursts are skipped after a long background-tab pause.
+The library builds to `dist/`, with TypeScript declarations. The playground builds to `playground-dist/`. PixiJS is a peer dependency, not bundled into the library. The package remains `private: true` to prevent accidental npm publication; it has not been published. Public naming and licensing can be finalized when preparing a release.
 
-Verified step 4 with browser checks for contact-timed dust, opposite/same-color captures, repeated captures, unique occupancy, effect cleanup, reset during effects, self/outside drops, reduced motion, and touch capture/reset. TypeScript and production build pass.
+## Minimal API
 
-The original transparent asset sheet is in `public/retro-chess-assets.png`. Texture frames are measured individually in `src/main.ts`; no image edits or additional generated assets are needed. Clean tile interiors from that sheet are repeated to produce an exact, equally spaced 8×8 grid inside the original decorative frame. The lower-right tile is light.
+| API | Purpose |
+| --- | --- |
+| `createChessboard(host, options)` | Mount a responsive canvas and return the board asynchronously. |
+| `board.getPosition()` | Read a defensive copy of the current position. |
+| `board.setPosition(position, { animate? })` | Replace the position; animate by default. Use `animate: false` for reset or immediate updates. |
+| `board.destroy()` | Remove the canvas and release instance resources. Safe to call twice. |
+| `board.canvas` | Access the canvas if the host needs it. |
 
-Each piece has a board-position container, a separate stepped ground shadow, and a visual container ready for future animation. Per-type heights range from 1.00 tiles for pawns to 1.22 tiles for kings, preserving each sprite's aspect ratio. Bases sit at 82% of the tile height, allowing silhouettes to overlap the rank above. Pieces render in row order so nearer rows cover farther ones. Canvas padding prevents top-rank clipping. Scanlines are part of the source image.
+Each piece has a stable `id`, a `square` such as `e4`, a `kind` (`p`, `n`, `b`, `r`, `q`, `k`), and a `side` (`w` or `b`). These describe appearance and placement only. No king, turn, or chess-rule requirements are enforced. IDs and occupied squares must be unique.
+
+`onMoveRequest({ pieceId, from, to })` is the application boundary:
+
+- Return the **entire next position** to accept. The host decides which pieces moved, disappeared, or changed appearance.
+- Return `null` to reject and return the piece to its original square.
+- Return a promise for either result when waiting on a server or application logic. New input pauses while pending.
+- Omit the handler for a read-only board.
+- Callback errors or malformed results reject the action and invoke `onError` (or log an error if none was supplied).
+
+`setPosition` supersedes pending requests; late responses cannot overwrite the newer position. Destroyed boards ignore late responses. The host must likewise prevent stale responses from overwriting its own application state.
+
+Example for a Vite application using a locally installed package tarball:
+
+```ts
+import { createChessboard, type Position } from 'pixi-chessboard';
+import assetUrl from 'pixi-chessboard/assets/retro-chess-assets.png?url';
+
+let position: Position = [
+  { id: 'white-pawn', square: 'd2', kind: 'p', side: 'w' },
+  { id: 'black-pawn', square: 'd7', kind: 'p', side: 'b' },
+];
+
+const board = await createChessboard(document.querySelector('#board')!, {
+  assetUrl,
+  position,
+  onMoveRequest(request) {
+    // Demo policy only. Replace this with your own rules or server validation.
+    position = position
+      .filter(piece => piece.id === request.pieceId || piece.square !== request.to)
+      .map(piece => piece.id === request.pieceId
+        ? { ...piece, square: request.to }
+        : piece);
+    return position;
+  },
+  onError: console.error,
+});
+
+// When unmounting: board.destroy();
+```
+
+Give the host a width and square aspect ratio, for example `#board { width: min(100%, 720px); aspect-ratio: 1; }`. No package stylesheet is required. Call `createChessboard` in the browser after the host mounts. Each board owns its canvas and renderer, resizing with its host width.
+
+`assetUrl` points to the supplied asset sheet or an image with the same sprite layout. For another bundler, serve the PNG and pass its URL. Cross-origin assets need CORS permission. The package assumes no Vite paths, page selectors, reset button, or starting position. The `?url` import above is specific to this Vite example.
+
+## Visual behavior
+
+- Positions are matched by stable ID. Removed IDs flash and fragment. The renderer never removes a piece simply because the pointer was dropped on it.
+- Green/amber drop highlights indicate empty/occupied squares, not legality. Allowed-move and threat indicators remain deferred.
+- Dust stays at the landing location. Reset with `animate: false` clears transient effects.
+- Reduced-motion preferences suppress motion, flashes, and particles while position updates remain functional.
+- Outside release, touch cancellation, blur, and resizing during a drag return the held piece. Keyboard piece movement is not implemented yet.
+- Artwork has baked-in scanlines. Theme layout, orientation, effect tuning, and annotations remain fixed until needed.
+
+## Tests and local packaging
+
+```sh
+npx playwright install chromium
+npm test
+npm pack --dry-run
+```
+
+Alternatively, test with installed Edge by setting `PLAYWRIGHT_CHANNEL=msedge` (PowerShell: `$env:PLAYWRIGHT_CHANNEL='msedge'`). Tests cover acceptance/rejection, async decisions, stale replies, immutable input, invalid positions, read-only mode, multiple boards, destruction, and mouse/touch capture.
+
+`npm pack` creates a local installable tarball; it does not publish. The prepack script builds the library. Package contents include built code, declarations, the PNG, and documentation, excluding the playground, tests, screenshots, and dependencies.
+
+## Layout
+
+```text
+src/           reusable renderer, public types, and effects
+assets/        retro asset sheet
+playground/    initial setup, free-play controller, reset UI, and styling
+tests/         browser checks against the public API
+```

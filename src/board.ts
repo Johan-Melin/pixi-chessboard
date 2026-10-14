@@ -1,9 +1,9 @@
-import { Application, Assets, ColorMatrixFilter, Container, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
-import './style.css';
-import { BoardEffects } from './effects';
+import { Application, ColorMatrixFilter, Container, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
+import { copyPosition } from './position.js';
+import type { BoardOptions, Chessboard, BoardPiece, Position, Square } from './types.js';
+import { BoardEffects } from './effects.js';
 
 type Kind = 'p' | 'n' | 'b' | 'r' | 'q' | 'k';
-type Side = 'w' | 'b';
 const frames: Record<string, [number, number, number, number]> = {
   wp:[765,251,140,209], wn:[914,209,163,251], wb:[1089,187,148,273],
   wr:[1250,205,162,255], wq:[1424,149,145,311], wk:[1582,95,161,366],
@@ -11,14 +11,31 @@ const frames: Record<string, [number, number, number, number]> = {
   br:[1249,550,163,258], bq:[1425,501,147,307], bk:[1586,467,158,341],
 };
 
-async function main() {
-  const host = document.querySelector<HTMLDivElement>('#board')!;
-  const app = new Application();
-  await app.init({backgroundAlpha:0, antialias:false, resolution:window.devicePixelRatio || 1, autoDensity:true, autoStart:false, preference:'webgl'});
+export async function createChessboard(host: HTMLElement, options: BoardOptions): Promise<Chessboard> {
+  let position=copyPosition(options.position??[]);
+  // Own the image and source per instance; destroying one board cannot break another.
+  const image=new Image(); image.crossOrigin='anonymous'; image.src=options.assetUrl;
+  await image.decode();
+  if(image.width<1750||image.height<810)throw new Error('Asset sheet is smaller than the required retro sprite layout.');
+  const mask=document.createElement('canvas');mask.width=image.width;mask.height=image.height;
+  const ctx=mask.getContext('2d',{willReadFrequently:true})!;
+  ctx.drawImage(image,0,0);
+  const pixels=ctx.getImageData(0,0,image.width,image.height).data;
+  const app=new Application();
+  await app.init({backgroundAlpha:0,antialias:false,resolution:window.devicePixelRatio||1,autoDensity:true,autoStart:false,preference:'webgl'});
+  const atlas=Texture.from(image);
+  atlas.source.scaleMode='nearest';
+  const ownedTextures:Texture[]=[];
+  const crop=(r:[number,number,number,number])=>{
+    const texture=new Texture({source:atlas.source,frame:new Rectangle(...r)});
+    ownedTextures.push(texture);return texture;
+  };
+  const pieceTextures=Object.fromEntries(Object.entries(frames).map(([key,frame])=>[key,crop(frame)]));
   host.appendChild(app.canvas);
-  const atlas = await Assets.load<Texture>(`${import.meta.env.BASE_URL}retro-chess-assets.png`);
-  atlas.source.scaleMode = 'nearest';
-  const crop = (r:[number,number,number,number]) => new Texture({source:atlas.source,frame:new Rectangle(...r)});
+  Object.assign(app.canvas.style,{display:'block',width:'100%',height:'100%',imageRendering:'pixelated',touchAction:'none'});
+  const events=new AbortController();
+  const listen=(target:EventTarget,type:string,callback:(event:any)=>void)=>target.addEventListener(type,callback,{signal:events.signal});
+  let destroyed=false,revision=0,pending=false;
   const scene = new Container({label:'board'});
   app.stage.addChild(scene);
 
@@ -44,22 +61,22 @@ async function main() {
   // Give each silhouette a useful tile-sized presence, rather than shrinking
   // every piece to accommodate the unusually tall king in the source sheet.
   const heights:Record<Kind,number>={p:1.00,r:1.05,n:1.10,b:1.12,q:1.17,k:1.22};
-  const pieces:{id:string;square:string;kind:Kind;side:Side;captured:boolean}[]=[];
   type Pose={y:number;xScale:number;yScale:number};
   type Keyframe=Pose & {at:number};
-  type Actor={id:string;alive:boolean;row:number;col:number;homeRow:number;homeCol:number;root:Container;visual:Container;sprite:Sprite;shadow:Graphics;filter:ColorMatrixFilter;brightness:number;pose:Pose;
+  type Actor={id:string;data:BoardPiece;row:number;col:number;root:Container;visual:Container;sprite:Sprite;shadow:Graphics;filter:ColorMatrixFilter;brightness:number;pose:Pose;
     impact?:{at:number;x:number;y:number;width:number};
     stretch:number;tilt:number;velocityX:number;velocityY:number;lastMotion:number;
     travel?:{start:number;duration:number;fromX:number;fromY:number;toX:number;toY:number};
     animation?:{start:number;keys:Keyframe[]}};
   const actors:Actor[]=[];
-  function place(side:Side,kind:Kind,col:number,row:number) {
-    const id=`${side}-${kind}-${col}-${row}`;
+  function place(data:BoardPiece) {
+    const {id,side,kind}=data;
+    const col=data.square.charCodeAt(0)-97,row=8-Number(data.square[1]);
     const root=new Container({label:id});
     root.position.set(inset+(col+0.5)*square,inset+(row+0.82)*square);
     root.zIndex=row*8+col;
     const visual=new Container({label:'visual'});
-    const sprite=new Sprite(crop(frames[side+kind]));
+    const sprite=new Sprite(pieceTextures[side+kind]);
     sprite.anchor.set(0.5,1);
     sprite.scale.set(square*heights[kind]/sprite.texture.height);
     // Stepped ground shadow stays independent of the visual for future lifting.
@@ -72,28 +89,15 @@ async function main() {
     visual.addChild(sprite); root.addChild(shadow,visual); pieceLayer.addChild(root);
     const filter=new ColorMatrixFilter();
     sprite.filters=[filter];
-    actors.push({id,alive:true,row,col,homeRow:row,homeCol:col,root,visual,sprite,shadow,filter,brightness:1,pose:{y:0,xScale:1,yScale:1},stretch:0,tilt:0,velocityX:0,velocityY:0,lastMotion:0});
-    pieces.push({id,square:`${'abcdefgh'[col]}${8-row}`,kind,side,captured:false});
+    const actor:Actor={id,data:{...data},row,col,root,visual,sprite,shadow,filter,brightness:1,pose:{y:0,xScale:1,yScale:1},stretch:0,tilt:0,velocityX:0,velocityY:0,lastMotion:0};
+    actors.push(actor);return actor;
   }
-  const back:Kind[]=['r','n','b','q','k','b','n','r'];
-  for(let col=0;col<8;col++) {
-    place('b',back[col],col,0); place('b','p',col,1);
-    place('w','p',col,6); place('w',back[col],col,7);
-  }
-  // Visible silhouettes take priority where pieces overlap; the rest of each
-  // occupied square is also interactive. Neither target moves during animation.
-  const image=new Image(); image.src=`${import.meta.env.BASE_URL}retro-chess-assets.png`;
-  await image.decode();
-  const mask=document.createElement('canvas');mask.width=image.width;mask.height=image.height;
-  const ctx=mask.getContext('2d',{willReadFrequently:true})!;
-  ctx.drawImage(image,0,0);
-  const pixels=ctx.getImageData(0,0,image.width,image.height).data;
+  for(const piece of position)place(piece);
   let hovered:Actor|undefined, held:Actor|undefined, pointerId:number|undefined;
   type Cell={row:number;col:number};
   let drag:{startClientX:number;startClientY:number;offsetX:number;offsetY:number;active:boolean;candidate?:Cell}|undefined;
-  const status=document.querySelector<HTMLElement>('#status')!;
   const homePosition=(actor:Actor)=>({x:inset+(actor.col+.5)*square,y:inset+(actor.row+.82)*square});
-  const occupant=(cell:Cell,actor:Actor)=>actors.find(other=>other.alive&&other!==actor&&other.row===cell.row&&other.col===cell.col);
+  const occupant=(cell:Cell,actor:Actor)=>actors.find(other=>other!==actor&&other.row===cell.row&&other.col===cell.col);
   const reduced=window.matchMedia('(prefers-reduced-motion: reduce)');
   const rest:Pose={y:0,xScale:1,yScale:1};
   function animate(actor:Actor,keys:Keyframe[]) {
@@ -114,14 +118,13 @@ async function main() {
   function hit(event:PointerEvent) {
     const {x,y}=boardPoint(event);
     for(const actor of [...actors].sort((a,b)=>b.root.zIndex-a.root.zIndex)) {
-      if(!actor.alive)continue;
       const f=actor.sprite.texture.frame, s=actor.sprite.scale.x;
       const px=Math.floor((x-actor.root.x)/s+f.width/2);
       const py=Math.floor((y-actor.root.y)/s+f.height);
       if(px>=0&&py>=0&&px<f.width&&py<f.height&&pixels[((f.y+py)*image.width+f.x+px)*4+3]>50)return actor;
     }
     const col=Math.floor((x-inset)/square),row=Math.floor((y-inset)/square);
-    if(col>=0&&col<8&&row>=0&&row<8)return actors.find(actor=>actor.alive&&actor.col===col&&actor.row===row);
+    if(col>=0&&col<8&&row>=0&&row<8)return actors.find(actor=>actor.col===col&&actor.row===row);
   }
   function feedback() {
     const active=held??hovered;
@@ -134,9 +137,8 @@ async function main() {
       highlight.rect(inset+col*square+3,inset+row*square+3,square-6,square-6)
         .fill({color,alpha:.22}).stroke({color,width:3,alpha:.95});
     }
-    app.canvas.style.cursor=held?'grabbing':hovered?'grab':'default';
+    app.canvas.style.cursor=pending?'wait':held?'grabbing':hovered?'grab':'default';
   }
-  app.canvas.style.touchAction='none';
   function moveHeld(event:PointerEvent) {
     if(!held||!drag||event.pointerId!==pointerId)return;
     if(!drag.active&&Math.hypot(event.clientX-drag.startClientX,event.clientY-drag.startClientY)<6)return;
@@ -151,13 +153,14 @@ async function main() {
     drag.candidate=cellAt(event);
     feedback();
   }
-  app.canvas.addEventListener('pointermove',event=>{
+  listen(app.canvas,'pointermove',event=>{
     if(pointerId!==undefined){moveHeld(event);return;}
+    if(pending||!options.onMoveRequest)return;
     hovered=event.pointerType==='touch'?undefined:hit(event);feedback();
   });
-  app.canvas.addEventListener('pointerleave',()=>{if(!held){hovered=undefined;feedback();}});
-  app.canvas.addEventListener('pointerdown',event=>{
-    if(pointerId!==undefined||event.button!==0||!event.isPrimary)return;
+  listen(app.canvas,'pointerleave',()=>{if(!held){hovered=undefined;feedback();}});
+  listen(app.canvas,'pointerdown',event=>{
+    if(pending||!options.onMoveRequest||pointerId!==undefined||event.button!==0||!event.isPrimary)return;
     const actor=hit(event);if(!actor)return;
     event.preventDefault();pointerId=event.pointerId;held=actor;hovered=actor;
     const p=boardPoint(event);
@@ -168,74 +171,102 @@ async function main() {
     animate(actor,[{at:45,y:0,xScale:1.07,yScale:0.93},{at:165,y:-square*0.15,xScale:0.98,yScale:1.04}]);
     feedback();
   });
-  function release(event?:PointerEvent) {
-    if(pointerId===undefined||(event&&event.pointerId!==pointerId))return;
-    const oldId=pointerId,actor=held!;
-    if(event?.type==='pointerup')moveHeld(event);
-    const wasDragging=drag?.active;
-    const destination=event?.type==='pointerup'&&wasDragging?cellAt(event):undefined;
-    const accepted=destination;
-    const victim=destination?occupant(destination,actor):undefined;
-    const now=performance.now();
-    const duration=wasDragging?(accepted?100:180):0;
-    const impactAt=now+duration+80;
-    if(victim){
-      // Commit occupancy once. A detached visual finishes the flash/burst even
-      // if the captor is immediately picked up again or captured in turn.
-      victim.alive=false;victim.root.visible=false;
-      victim.animation=undefined;victim.travel=undefined;victim.impact=undefined;
-      const victimData=pieces.find(piece=>piece.id===victim.id)!;
-      victimData.captured=true;
-      if(!reduced.matches){
-        const location=homePosition(victim);
-        effects.capture(victim.sprite.texture,location.x,location.y,victim.sprite.width,victim.sprite.height,impactAt,
-          victimData.side==='w'?[0xfff3c7,0xdab478,0x9b7548,0x242022]:[0x777976,0x45484a,0x1c2027,0xd1b486]);
-      }
-    }
-    if(accepted){
-      actor.row=destination.row;actor.col=destination.col;
-      pieces.find(piece=>piece.id===actor.id)!.square=`${'abcdefgh'[actor.col]}${8-actor.row}`;
-      status.textContent=`${victim?'Captured':'Placed'} on ${'abcdefgh'[actor.col]}${8-actor.row}`;
-    }else if(wasDragging)status.textContent='Returned to original square';
-    held=undefined;pointerId=undefined;
-    drag=undefined;actor.velocityX=0;actor.velocityY=0;
+  function detachPointer() {
+    const oldId=pointerId;
+    held=undefined;pointerId=undefined;drag=undefined;hovered=undefined;
+    if(oldId!==undefined&&app.canvas.hasPointerCapture(oldId))app.canvas.releasePointerCapture(oldId);
+  }
+  function land(actor:Actor,duration:number) {
+    actor.velocityX=0;actor.velocityY=0;
     const target=homePosition(actor);
-    if(duration&&!reduced.matches)actor.travel={start:performance.now(),duration,fromX:actor.root.x,fromY:actor.root.y,toX:target.x,toY:target.y};
+    const now=performance.now(),impactAt=now+duration+80;
+    if(duration&&!reduced.matches)actor.travel={start:now,duration,fromX:actor.root.x,fromY:actor.root.y,toX:target.x,toY:target.y};
     else {actor.root.position.set(target.x,target.y);actor.travel=undefined;}
     const settle:Keyframe[]=[];
     if(duration)settle.push({at:duration,...actor.pose});
     settle.push({at:duration+80,...rest},{at:duration+130,y:0,xScale:1.07,yScale:0.94},{at:duration+250,...rest});
     animate(actor,settle);
-    // Emit at ground contact, not pointer release; cancel if picked up early.
     actor.impact=!reduced.matches&&actor.pose.y<-.5?{at:impactAt,x:target.x,y:target.y,width:actor.sprite.width}:undefined;
-    hovered=!wasDragging&&event?.type==='pointerup'&&event.pointerType!=='touch'?hit(event):undefined;
-    if(app.canvas.hasPointerCapture(oldId))app.canvas.releasePointerCapture(oldId);
-    feedback();
   }
-  app.canvas.addEventListener('pointerup',release);
-  app.canvas.addEventListener('pointercancel',release);
-  app.canvas.addEventListener('lostpointercapture',release);
-  window.addEventListener('blur',()=>{release();hovered=undefined;feedback();});
-  document.addEventListener('visibilitychange',()=>{if(document.hidden){release();hovered=undefined;feedback();}});
-  document.querySelector<HTMLButtonElement>('#reset')!.addEventListener('click',()=>{
-    release();hovered=undefined;
-    effects.clear();
-    for(const actor of actors){
-      actor.alive=true;actor.root.visible=true;actor.impact=undefined;
-      actor.row=actor.homeRow;actor.col=actor.homeCol;
-      actor.animation=undefined;actor.travel=undefined;actor.pose={...rest};
-      actor.stretch=0;actor.tilt=0;actor.velocityX=0;actor.velocityY=0;
-      const p=homePosition(actor);actor.root.position.set(p.x,p.y);
-      actor.root.zIndex=actor.row*8+actor.col;
-      const piece=pieces.find(piece=>piece.id===actor.id)!;
-      piece.square=`${'abcdefgh'[actor.col]}${8-actor.row}`;piece.captured=false;
+  function removeActor(actor:Actor,animated:boolean) {
+    if(animated&&!reduced.matches){
+      const location=homePosition(actor);
+      effects.capture(actor.sprite.texture,location.x,location.y,actor.sprite.width,actor.sprite.height,performance.now()+180,
+        actor.data.side==='w'?[0xfff3c7,0xdab478,0x9b7548,0x242022]:[0x777976,0x45484a,0x1c2027,0xd1b486]);
     }
-    status.textContent='Starting position restored';feedback();
-  });
+    actor.filter.destroy();actor.root.destroy({children:true});
+    actors.splice(actors.indexOf(actor),1);
+  }
+  function applyPosition(next:BoardPiece[],animated:boolean) {
+    // Diff by stable ID; removed IDs are visual removals, not inferred chess rules.
+    if(!animated)effects.clear();
+    for(const actor of [...actors]){
+      const data=next.find(piece=>piece.id===actor.id);
+      if(!data||data.kind!==actor.data.kind||data.side!==actor.data.side)removeActor(actor,animated&&!data);
+    }
+    for(const data of next){
+      let actor=actors.find(a=>a.id===data.id);
+      if(!actor){place(data);continue;}
+      const moved=actor.data.square!==data.square;
+      actor.data={...data};actor.col=data.square.charCodeAt(0)-97;actor.row=8-Number(data.square[1]);
+      actor.impact=undefined;
+      if(animated){
+        if(moved){actor.root.zIndex=1000;actor.pose={y:-square*.15,xScale:.98,yScale:1.04};land(actor,100);}
+        else if(actor.pose.y!==0||actor.travel||actor.animation)land(actor,180);
+      }else{
+        actor.animation=undefined;actor.travel=undefined;actor.pose={...rest};
+        actor.stretch=0;actor.tilt=0;actor.velocityX=0;actor.velocityY=0;
+        actor.visual.position.set(0,0);actor.visual.scale.set(1);actor.visual.rotation=0;
+        actor.shadow.scale.set(1);actor.shadow.alpha=1;
+        const p=homePosition(actor);actor.root.position.set(p.x,p.y);actor.root.zIndex=actor.row*8+actor.col;
+      }
+    }
+    position=next;
+  }
+  function report(error:unknown){
+    if(options.onError){try{options.onError(error);}catch(callbackError){console.error(callbackError);}}
+    else console.error('Chessboard move request failed:',error);
+  }
+  function release(event?:PointerEvent) {
+    if(pointerId===undefined||(event&&event.pointerId!==pointerId))return;
+    const actor=held!;
+    if(event?.type==='pointerup')moveHeld(event);
+    const wasDragging=drag?.active;
+    const destination=event?.type==='pointerup'&&wasDragging?cellAt(event):undefined;
+    detachPointer();
+    actor.velocityX=0;actor.velocityY=0;
+    if(!destination||(actor.row===destination.row&&actor.col===destination.col)){
+      land(actor,wasDragging?180:0);feedback();return;
+    }
+    pending=true;const requestRevision=++revision;
+    const request=Object.freeze({pieceId:actor.id,from:actor.data.square,to:(String.fromCharCode(97+destination.col)+(8-destination.row)) as Square});
+    feedback();
+    const finish=(result:Position|null)=>{
+      if(destroyed||requestRevision!==revision)return;
+      try {
+        if(result===null){land(actor,180);}
+        else applyPosition(copyPosition(result),true);
+      }catch(error){land(actor,180);report(error);}
+      pending=false;feedback();
+    };
+    try {
+      const result=options.onMoveRequest!(request);
+      if(result!==null&&!Array.isArray(result)){
+        Promise.resolve(result).then(finish,error=>{
+          if(destroyed||requestRevision!==revision)return;
+          finish(null);report(error);
+        });
+      }else finish(result as Position|null);
+    }catch(error){finish(null);report(error);}
+  }
+  listen(app.canvas,'pointerup',release);
+  listen(app.canvas,'pointercancel',release);
+  listen(app.canvas,'lostpointercapture',release);
+  listen(window,'blur',()=>{release();hovered=undefined;feedback();});
+  listen(document,'visibilitychange',()=>{if(document.hidden){release();hovered=undefined;feedback();}});
   app.ticker.add(ticker=>{
     const now=performance.now();
     for(const actor of actors){
-      if(!actor.alive)continue;
       if(actor.travel){
         const travel=actor.travel,t=Math.min(1,(now-travel.start)/travel.duration),ease=1-(1-t)**3;
         actor.root.position.set(travel.fromX+(travel.toX-travel.fromX)*ease,travel.fromY+(travel.toY-travel.fromY)*ease);
@@ -284,16 +315,25 @@ async function main() {
     scene.position.set(40*scale,40*scale);
     app.render();
   }
-  new ResizeObserver(resize).observe(host);
+  const observer=new ResizeObserver(resize);observer.observe(host);
   resize();
-  // Read-only diagnostics for validating interaction and board occupancy.
-  Object.assign(window,{boardDebug:{pieces,frames,get pieceCount(){return actors.filter(a=>a.alive).length;},
-    snapshot:()=>({hovered:hovered?.id,held:held?.id,dragging:drag?.active,candidate:drag?.candidate,particles:effects.particleCount,captures:effects.captureCount,effectChildren:effects.layer.children.length,board:{x:scene.x,y:scene.y,scale:scene.scale.x,inset,square},actors:actors.map(a=>({id:a.id,alive:a.alive,impactAt:a.impact?.at,row:a.row,col:a.col,rotation:a.visual.rotation,y:a.visual.y,scaleX:a.visual.scale.x,scaleY:a.visual.scale.y,shadowY:a.shadow.y,shadowAlpha:a.shadow.alpha,
-      x:scene.x+a.root.x*scene.scale.x,baseY:scene.y+a.root.y*scene.scale.y,height:a.sprite.height*scene.scale.y}))})}});
-  host.dataset.ready='true';
+  return {
+    canvas:app.canvas,
+    getPosition:()=>copyPosition(position),
+    setPosition(next,settings={}){
+      if(destroyed)throw new Error('Chessboard has been destroyed.');
+      const validated=copyPosition(next); // Validate before disturbing current state.
+      revision++;pending=false;detachPointer();
+      applyPosition(validated,settings.animate!==false);feedback();app.render();
+    },
+    destroy(){
+      if(destroyed)return;
+      destroyed=true;revision++;pending=false;detachPointer();
+      observer.disconnect();events.abort();effects.clear();
+      for(const actor of actors)actor.filter.destroy();
+      app.destroy({removeView:true},{children:true});
+      for(const texture of ownedTextures)texture.destroy();
+      atlas.destroy(true);
+    },
+  };
 }
-main().catch(error=>{
-  console.error(error);
-  const message=document.querySelector<HTMLParagraphElement>('#error')!;
-  message.hidden=false;message.textContent='The board could not load. Please refresh and try again.';
-});

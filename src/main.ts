@@ -1,5 +1,6 @@
 import { Application, Assets, ColorMatrixFilter, Container, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
 import './style.css';
+import { BoardEffects } from './effects';
 
 type Kind = 'p' | 'n' | 'b' | 'r' | 'q' | 'k';
 type Side = 'w' | 'b';
@@ -38,13 +39,16 @@ async function main() {
   scene.addChild(highlight);
   const pieceLayer=new Container({label:'pieces',sortableChildren:true});
   scene.addChild(pieceLayer);
+  const effects=new BoardEffects();
+  scene.addChild(effects.layer);
   // Give each silhouette a useful tile-sized presence, rather than shrinking
   // every piece to accommodate the unusually tall king in the source sheet.
   const heights:Record<Kind,number>={p:1.00,r:1.05,n:1.10,b:1.12,q:1.17,k:1.22};
-  const pieces:{id:string;square:string;kind:Kind;side:Side}[]=[];
+  const pieces:{id:string;square:string;kind:Kind;side:Side;captured:boolean}[]=[];
   type Pose={y:number;xScale:number;yScale:number};
   type Keyframe=Pose & {at:number};
-  type Actor={id:string;row:number;col:number;homeRow:number;homeCol:number;root:Container;visual:Container;sprite:Sprite;shadow:Graphics;filter:ColorMatrixFilter;brightness:number;pose:Pose;
+  type Actor={id:string;alive:boolean;row:number;col:number;homeRow:number;homeCol:number;root:Container;visual:Container;sprite:Sprite;shadow:Graphics;filter:ColorMatrixFilter;brightness:number;pose:Pose;
+    impact?:{at:number;x:number;y:number;width:number};
     stretch:number;tilt:number;velocityX:number;velocityY:number;lastMotion:number;
     travel?:{start:number;duration:number;fromX:number;fromY:number;toX:number;toY:number};
     animation?:{start:number;keys:Keyframe[]}};
@@ -68,8 +72,8 @@ async function main() {
     visual.addChild(sprite); root.addChild(shadow,visual); pieceLayer.addChild(root);
     const filter=new ColorMatrixFilter();
     sprite.filters=[filter];
-    actors.push({id,row,col,homeRow:row,homeCol:col,root,visual,sprite,shadow,filter,brightness:1,pose:{y:0,xScale:1,yScale:1},stretch:0,tilt:0,velocityX:0,velocityY:0,lastMotion:0});
-    pieces.push({id,square:`${'abcdefgh'[col]}${8-row}`,kind,side});
+    actors.push({id,alive:true,row,col,homeRow:row,homeCol:col,root,visual,sprite,shadow,filter,brightness:1,pose:{y:0,xScale:1,yScale:1},stretch:0,tilt:0,velocityX:0,velocityY:0,lastMotion:0});
+    pieces.push({id,square:`${'abcdefgh'[col]}${8-row}`,kind,side,captured:false});
   }
   const back:Kind[]=['r','n','b','q','k','b','n','r'];
   for(let col=0;col<8;col++) {
@@ -89,7 +93,7 @@ async function main() {
   let drag:{startClientX:number;startClientY:number;offsetX:number;offsetY:number;active:boolean;candidate?:Cell}|undefined;
   const status=document.querySelector<HTMLElement>('#status')!;
   const homePosition=(actor:Actor)=>({x:inset+(actor.col+.5)*square,y:inset+(actor.row+.82)*square});
-  const canDrop=(cell:Cell,actor:Actor)=>!actors.some(other=>other!==actor&&other.row===cell.row&&other.col===cell.col);
+  const occupant=(cell:Cell,actor:Actor)=>actors.find(other=>other.alive&&other!==actor&&other.row===cell.row&&other.col===cell.col);
   const reduced=window.matchMedia('(prefers-reduced-motion: reduce)');
   const rest:Pose={y:0,xScale:1,yScale:1};
   function animate(actor:Actor,keys:Keyframe[]) {
@@ -110,13 +114,14 @@ async function main() {
   function hit(event:PointerEvent) {
     const {x,y}=boardPoint(event);
     for(const actor of [...actors].sort((a,b)=>b.root.zIndex-a.root.zIndex)) {
+      if(!actor.alive)continue;
       const f=actor.sprite.texture.frame, s=actor.sprite.scale.x;
       const px=Math.floor((x-actor.root.x)/s+f.width/2);
       const py=Math.floor((y-actor.root.y)/s+f.height);
       if(px>=0&&py>=0&&px<f.width&&py<f.height&&pixels[((f.y+py)*image.width+f.x+px)*4+3]>50)return actor;
     }
     const col=Math.floor((x-inset)/square),row=Math.floor((y-inset)/square);
-    if(col>=0&&col<8&&row>=0&&row<8)return actors.find(actor=>actor.col===col&&actor.row===row);
+    if(col>=0&&col<8&&row>=0&&row<8)return actors.find(actor=>actor.alive&&actor.col===col&&actor.row===row);
   }
   function feedback() {
     const active=held??hovered;
@@ -125,7 +130,7 @@ async function main() {
       .fill({color:0xeacb83,alpha:held?0.22:0.13}).stroke({color:0xf7df9b,width:2,alpha:0.85});
     if(held&&drag?.active&&drag.candidate){
       const {row,col}=drag.candidate;
-      const color=canDrop(drag.candidate,held)?0xa8d9b0:0xeb877a;
+      const color=occupant(drag.candidate,held)?0xebad77:0xa8d9b0;
       highlight.rect(inset+col*square+3,inset+row*square+3,square-6,square-6)
         .fill({color,alpha:.22}).stroke({color,width:3,alpha:.95});
     }
@@ -157,7 +162,7 @@ async function main() {
     event.preventDefault();pointerId=event.pointerId;held=actor;hovered=actor;
     const p=boardPoint(event);
     drag={startClientX:event.clientX,startClientY:event.clientY,offsetX:p.x-actor.root.x,offsetY:p.y-actor.root.y,active:false};
-    actor.travel=undefined;actor.velocityX=0;actor.velocityY=0;actor.lastMotion=performance.now();
+    actor.travel=undefined;actor.impact=undefined;actor.velocityX=0;actor.velocityY=0;actor.lastMotion=performance.now();
     app.canvas.setPointerCapture(event.pointerId);
     actor.root.zIndex=1000;
     animate(actor,[{at:45,y:0,xScale:1.07,yScale:0.93},{at:165,y:-square*0.15,xScale:0.98,yScale:1.04}]);
@@ -169,21 +174,40 @@ async function main() {
     if(event?.type==='pointerup')moveHeld(event);
     const wasDragging=drag?.active;
     const destination=event?.type==='pointerup'&&wasDragging?cellAt(event):undefined;
-    const accepted=destination&&canDrop(destination,actor);
+    const accepted=destination;
+    const victim=destination?occupant(destination,actor):undefined;
+    const now=performance.now();
+    const duration=wasDragging?(accepted?100:180):0;
+    const impactAt=now+duration+80;
+    if(victim){
+      // Commit occupancy once. A detached visual finishes the flash/burst even
+      // if the captor is immediately picked up again or captured in turn.
+      victim.alive=false;victim.root.visible=false;
+      victim.animation=undefined;victim.travel=undefined;victim.impact=undefined;
+      const victimData=pieces.find(piece=>piece.id===victim.id)!;
+      victimData.captured=true;
+      if(!reduced.matches){
+        const location=homePosition(victim);
+        effects.capture(victim.sprite.texture,location.x,location.y,victim.sprite.width,victim.sprite.height,impactAt,
+          victimData.side==='w'?[0xfff3c7,0xdab478,0x9b7548,0x242022]:[0x777976,0x45484a,0x1c2027,0xd1b486]);
+      }
+    }
     if(accepted){
       actor.row=destination.row;actor.col=destination.col;
       pieces.find(piece=>piece.id===actor.id)!.square=`${'abcdefgh'[actor.col]}${8-actor.row}`;
-      status.textContent=`Placed on ${'abcdefgh'[actor.col]}${8-actor.row}`;
+      status.textContent=`${victim?'Captured':'Placed'} on ${'abcdefgh'[actor.col]}${8-actor.row}`;
     }else if(wasDragging)status.textContent='Returned to original square';
     held=undefined;pointerId=undefined;
     drag=undefined;actor.velocityX=0;actor.velocityY=0;
-    const target=homePosition(actor),duration=wasDragging?(accepted?100:180):0;
+    const target=homePosition(actor);
     if(duration&&!reduced.matches)actor.travel={start:performance.now(),duration,fromX:actor.root.x,fromY:actor.root.y,toX:target.x,toY:target.y};
     else {actor.root.position.set(target.x,target.y);actor.travel=undefined;}
     const settle:Keyframe[]=[];
     if(duration)settle.push({at:duration,...actor.pose});
     settle.push({at:duration+80,...rest},{at:duration+130,y:0,xScale:1.07,yScale:0.94},{at:duration+250,...rest});
     animate(actor,settle);
+    // Emit at ground contact, not pointer release; cancel if picked up early.
+    actor.impact=!reduced.matches&&actor.pose.y<-.5?{at:impactAt,x:target.x,y:target.y,width:actor.sprite.width}:undefined;
     hovered=!wasDragging&&event?.type==='pointerup'&&event.pointerType!=='touch'?hit(event):undefined;
     if(app.canvas.hasPointerCapture(oldId))app.canvas.releasePointerCapture(oldId);
     feedback();
@@ -195,19 +219,23 @@ async function main() {
   document.addEventListener('visibilitychange',()=>{if(document.hidden){release();hovered=undefined;feedback();}});
   document.querySelector<HTMLButtonElement>('#reset')!.addEventListener('click',()=>{
     release();hovered=undefined;
+    effects.clear();
     for(const actor of actors){
+      actor.alive=true;actor.root.visible=true;actor.impact=undefined;
       actor.row=actor.homeRow;actor.col=actor.homeCol;
       actor.animation=undefined;actor.travel=undefined;actor.pose={...rest};
       actor.stretch=0;actor.tilt=0;actor.velocityX=0;actor.velocityY=0;
       const p=homePosition(actor);actor.root.position.set(p.x,p.y);
       actor.root.zIndex=actor.row*8+actor.col;
-      pieces.find(piece=>piece.id===actor.id)!.square=`${'abcdefgh'[actor.col]}${8-actor.row}`;
+      const piece=pieces.find(piece=>piece.id===actor.id)!;
+      piece.square=`${'abcdefgh'[actor.col]}${8-actor.row}`;piece.captured=false;
     }
     status.textContent='Starting position restored';feedback();
   });
   app.ticker.add(ticker=>{
     const now=performance.now();
     for(const actor of actors){
+      if(!actor.alive)continue;
       if(actor.travel){
         const travel=actor.travel,t=Math.min(1,(now-travel.start)/travel.duration),ease=1-(1-t)**3;
         actor.root.position.set(travel.fromX+(travel.toX-travel.fromX)*ease,travel.fromY+(travel.toY-travel.fromY)*ease);
@@ -237,7 +265,12 @@ async function main() {
       const target=(held??hovered)===actor?1.22:1;
       actor.brightness+=(target-actor.brightness)*(1-Math.exp(-ticker.deltaMS/65));
       actor.filter.brightness(actor.brightness,false);
+      if(actor.impact&&now>=actor.impact.at){
+        const impact=actor.impact;actor.impact=undefined;
+        if(!reduced.matches&&now-impact.at<150)effects.dust(impact.x,impact.y,impact.width,impact.at);
+      }
     }
+    effects.update(now,reduced.matches);
   });
   app.start();
   function resize() {
@@ -254,8 +287,8 @@ async function main() {
   new ResizeObserver(resize).observe(host);
   resize();
   // Read-only diagnostics for validating interaction and board occupancy.
-  Object.assign(window,{boardDebug:{pieces,frames,pieceCount:pieceLayer.children.length,
-    snapshot:()=>({hovered:hovered?.id,held:held?.id,dragging:drag?.active,candidate:drag?.candidate,board:{x:scene.x,y:scene.y,scale:scene.scale.x,inset,square},actors:actors.map(a=>({id:a.id,row:a.row,col:a.col,rotation:a.visual.rotation,y:a.visual.y,scaleX:a.visual.scale.x,scaleY:a.visual.scale.y,shadowY:a.shadow.y,shadowAlpha:a.shadow.alpha,
+  Object.assign(window,{boardDebug:{pieces,frames,get pieceCount(){return actors.filter(a=>a.alive).length;},
+    snapshot:()=>({hovered:hovered?.id,held:held?.id,dragging:drag?.active,candidate:drag?.candidate,particles:effects.particleCount,captures:effects.captureCount,effectChildren:effects.layer.children.length,board:{x:scene.x,y:scene.y,scale:scene.scale.x,inset,square},actors:actors.map(a=>({id:a.id,alive:a.alive,impactAt:a.impact?.at,row:a.row,col:a.col,rotation:a.visual.rotation,y:a.visual.y,scaleX:a.visual.scale.x,scaleY:a.visual.scale.y,shadowY:a.shadow.y,shadowAlpha:a.shadow.alpha,
       x:scene.x+a.root.x*scene.scale.x,baseY:scene.y+a.root.y*scene.scale.y,height:a.sprite.height*scene.scale.y}))})}});
   host.dataset.ready='true';
 }

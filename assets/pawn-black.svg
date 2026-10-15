@@ -1,0 +1,5 @@
+<svg width="192" height="192" viewBox="0 0 192 192" xmlns="http://www.w3.org/2000/svg">
+  <defs><g id="pawn"><rect x="38" y="147" width="116" height="24" rx="10"/><path d="M79 83H113L141 159H51L79 83Z"/><ellipse cx="96" cy="61.5" rx="41" ry="39.5"/></g></defs>
+  <use href="#pawn" fill="#66707b" stroke="#12161c" stroke-width="8" stroke-linejoin="round"/>
+  <use href="#pawn" fill="#66707b"/>
+</svg>

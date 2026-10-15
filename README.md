@@ -72,6 +72,8 @@ Give the host a width and square aspect ratio, for example `#board { width: min(
 
 ## Visual behavior
 
+Custom piece artwork can override individual sprites using `pieceAssets: { wp: whitePawnUrl, bp: blackPawnUrl }`. Keys combine side (`w`/`b`) and kind (`p`, `n`, `b`, `r`, `q`, `k`). SVG and other browser image formats work; missing entries use the original sheet. Transparent margins are trimmed before scaling, and pointer hit testing uses the replacement's alpha mask. SVG files load as images, rather than being inserted into the page. Included `assets/pawn-white.svg` and `assets/pawn-black.svg` use the user-provided pawn geometry, recolored with a dark outer outline.
+
 - Positions are matched by stable ID. Removed IDs flash and fragment. The renderer never removes a piece simply because the pointer was dropped on it.
 - Green/amber drop highlights indicate empty/occupied squares, not legality. Allowed-move and threat indicators remain deferred.
 - Dust stays at the landing location. Reset with `animate: false` clears transient effects.

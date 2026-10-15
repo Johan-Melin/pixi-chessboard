@@ -21,6 +21,18 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
   const ctx=mask.getContext('2d',{willReadFrequently:true})!;
   ctx.drawImage(image,0,0);
   const pixels=ctx.getImageData(0,0,image.width,image.height).data;
+  // Decode before mounting, so invalid custom artwork cannot leave a partial board.
+  const customImages=await Promise.all(Object.entries(options.pieceAssets??{}).map(async([key,url])=>{
+    if(!Object.hasOwn(frames,key))throw new TypeError(`Unknown piece artwork key: ${key}`);
+    const custom=new Image();custom.crossOrigin='anonymous';custom.src=url!;await custom.decode();
+    const canvas=document.createElement('canvas');canvas.width=custom.naturalWidth;canvas.height=custom.naturalHeight;
+    const context=canvas.getContext('2d',{willReadFrequently:true})!;context.drawImage(custom,0,0);
+    const alpha=context.getImageData(0,0,canvas.width,canvas.height).data;
+    let left=canvas.width,top=canvas.height,right=-1,bottom=-1;
+    for(let y=0;y<canvas.height;y++)for(let x=0;x<canvas.width;x++)if(alpha[(y*canvas.width+x)*4+3]>0){left=Math.min(left,x);top=Math.min(top,y);right=Math.max(right,x);bottom=Math.max(bottom,y);}
+    if(right<0)throw new TypeError(`Piece artwork is fully transparent: ${key}`);
+    return {key,image:custom,pixels:alpha,width:canvas.width,bounds:[left,top,right-left+1,bottom-top+1] as [number,number,number,number]};
+  }));
   const app=new Application();
   await app.init({backgroundAlpha:0,antialias:false,resolution:window.devicePixelRatio||1,autoDensity:true,autoStart:false,preference:'webgl'});
   const atlas=Texture.from(image);
@@ -31,6 +43,14 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
     ownedTextures.push(texture);return texture;
   };
   const pieceTextures=Object.fromEntries(Object.entries(frames).map(([key,frame])=>[key,crop(frame)]));
+  const hitMasks=Object.fromEntries(Object.entries(frames).map(([key,f])=>[key,{pixels,width:image.width,x:f[0],y:f[1]}]));
+  const customSources:Texture[]=[];
+  for(const custom of customImages){
+    const source=Texture.from(custom.image);source.source.scaleMode='linear';customSources.push(source);
+    const texture=new Texture({source:source.source,frame:new Rectangle(...custom.bounds)});ownedTextures.push(texture);
+    pieceTextures[custom.key]=texture;
+    hitMasks[custom.key]={pixels:custom.pixels,width:custom.width,x:custom.bounds[0],y:custom.bounds[1]};
+  }
   host.appendChild(app.canvas);
   Object.assign(app.canvas.style,{display:'block',width:'100%',height:'100%',imageRendering:'pixelated',touchAction:'none'});
   const events=new AbortController();
@@ -121,7 +141,8 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
       const f=actor.sprite.texture.frame, s=actor.sprite.scale.x;
       const px=Math.floor((x-actor.root.x)/s+f.width/2);
       const py=Math.floor((y-actor.root.y)/s+f.height);
-      if(px>=0&&py>=0&&px<f.width&&py<f.height&&pixels[((f.y+py)*image.width+f.x+px)*4+3]>50)return actor;
+      const mask=hitMasks[actor.data.side+actor.data.kind];
+      if(px>=0&&py>=0&&px<f.width&&py<f.height&&mask.pixels[((mask.y+py)*mask.width+mask.x+px)*4+3]>50)return actor;
     }
     const col=Math.floor((x-inset)/square),row=Math.floor((y-inset)/square);
     if(col>=0&&col<8&&row>=0&&row<8)return actors.find(actor=>actor.col===col&&actor.row===row);
@@ -333,6 +354,7 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
       for(const actor of actors)actor.filter.destroy();
       app.destroy({removeView:true},{children:true});
       for(const texture of ownedTextures)texture.destroy();
+      for(const texture of customSources)texture.destroy(true);
       atlas.destroy(true);
     },
   };

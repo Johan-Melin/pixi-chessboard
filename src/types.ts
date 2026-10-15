@@ -1,5 +1,6 @@
 export type PieceKind = 'p' | 'n' | 'b' | 'r' | 'q' | 'k';
 export type PieceSide = 'w' | 'b';
+export type PieceKey = `${PieceSide}${PieceKind}`;
 export type Square = `${'a'|'b'|'c'|'d'|'e'|'f'|'g'|'h'}${1|2|3|4|5|6|7|8}`;
 
 /** Stable IDs let the renderer follow pieces between supplied positions. */
@@ -20,6 +21,8 @@ export interface MoveRequest {
 export interface BoardOptions {
   /** URL to the supplied retro asset sheet (or a replacement with the same layout). */
   assetUrl: string;
+  /** Optional image URLs keyed by side+kind, e.g. wp/bp. Transparent margins are trimmed. */
+  pieceAssets?: Partial<Record<PieceKey, string>>;
   position?: Position;
   /** Return the entire next position to accept; null to reject. No handler means read-only. */
   onMoveRequest?: (request: MoveRequest) => Position | null | Promise<Position | null>;

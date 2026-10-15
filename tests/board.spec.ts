@@ -23,6 +23,7 @@ async function fixture(page:Page, mode:string) {
     w.fixturePosition=[{id:'a',square:'d2',kind:'p',side:'w'},{id:'b',square:'d7',kind:'p',side:'b'}];
     api.board=await api.createChessboard(document.querySelector('#board'),{
       assetUrl:api.assetUrl,position:w.fixturePosition,
+      ...(mode==='custom'?{pieceAssets:{wp:'/assets/pawn-white.svg',bp:'/assets/pawn-black.svg'}}:{}),
       onError:(error:Error)=>w.errors.push(error.message),
       ...(mode==='readonly'?{}:{onMoveRequest:(request:any)=>{
         w.requests.push(request);
@@ -57,6 +58,21 @@ test('host may reject without changing the position or capturing',async({page})=
   expect(await position(page)).toEqual(original);
   expect(await page.evaluate(()=>(window as any).requests)).toEqual([{pieceId:'a',from:'d2',to:'d7'}]);
   await expect(page.locator('#board canvas')).not.toHaveCSS('cursor','wait');
+});
+
+test('custom SVG artwork supports silhouette picking and survives replacement and cleanup',async({page})=>{
+  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+  await ready(page);await fixture(page,'custom');
+  const r=(await page.locator('#board canvas').boundingBox())!,s=r.width/800;
+  // Pawn head extends into the square above its base; click its actual artwork,
+  // not the occupied-square fallback, so the replacement alpha mask is exercised.
+  const x=r.x+(58+3.5*85.5)*s,y=r.y+(58+5.99*85.5)*s;
+  await page.mouse.move(x,y);await page.mouse.down();await page.waitForTimeout(190);
+  const target=await cell(page,'d4');await page.mouse.move(target.x,target.y,{steps:8});await page.mouse.up();
+  await expect.poll(async()=>(await position(page))[0].square).toBe('d4');
+  await page.evaluate(()=>{const board=(window as any).playground.board;board.setPosition([],{animate:false});board.setPosition([{id:'black',square:'e4',side:'b',kind:'p'}]);});
+  await page.waitForTimeout(200);await page.screenshot({path:'test-results/custom-pawn.png'});
+  await page.evaluate(()=>(window as any).playground.board.destroy());expect(errors).toEqual([]);
 });
 
 test('host controls the full result: an occupied destination need not capture',async({page})=>{

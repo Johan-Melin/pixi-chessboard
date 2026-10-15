@@ -80,6 +80,29 @@ test('host controls the full result: an occupied destination need not capture',a
   expect(await position(page)).toEqual([{id:'a',square:'d7',kind:'p',side:'w'},{id:'b',square:'e6',kind:'p',side:'b'}]);
 });
 
+test('one unmodified SVG supports independent fill, outline toggle, and sizing',async({page})=>{
+  await ready(page);
+  const output=await page.evaluate(async()=>{
+    const {prepareArtwork}=await import('/src/artwork.ts');
+    const image=new Image();image.src='/assets/pawn-original.svg';await image.decode();
+    const rect=[0,0,192,192];
+    const inspect=(style:any)=>{
+      const result=prepareArtwork(image,rect,style,85.5);
+      let teal=0,dark=0;
+      for(let i=0;i<result.pixels.length;i+=4){
+        if(result.pixels[i+3]===255&&result.pixels[i]===67&&result.pixels[i+1]===153&&result.pixels[i+2]===173)teal++;
+        if(result.pixels[i+3]===255&&result.pixels[i]===18&&result.pixels[i+1]===22&&result.pixels[i+2]===28)dark++;
+      }
+      return {teal,dark,height:result.bounds[3]};
+    };
+    return {plain:inspect({color:'#4399ad',outline:false}),outlined:inspect({color:'#4399ad',outline:true,outlineWidth:2}),thick:inspect({color:'#4399ad',outline:true,outlineWidth:5}),
+      invalid:[{scale:0},{color:'not-a-color'},{outline:true,outlineWidth:-1}].map(style=>{try{prepareArtwork(image,rect,style,85.5);return false;}catch{return true;}})};
+  });
+  expect(output.plain.teal).toBeGreaterThan(100);expect(output.plain.dark).toBe(0);
+  expect(output.outlined.teal).toBeGreaterThan(100);expect(output.outlined.dark).toBeGreaterThan(0);
+  expect(output.thick.height).toBeGreaterThan(output.outlined.height);expect(output.invalid).toEqual([true,true,true]);
+});
+
 test('pending decisions do not mutate the board; later acceptance applies',async({page})=>{
   await ready(page);await fixture(page,'pending');await drag(page,'d2','d7');
   expect((await position(page))[0].square).toBe('d2');

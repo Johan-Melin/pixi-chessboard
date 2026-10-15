@@ -1,7 +1,6 @@
 import { createChessboard, type Position, type PieceKind, type Square } from '../src';
 import assetUrl from '../assets/retro-chess-assets.png?url';
-import whitePawn from '../assets/pawn-white.svg?url';
-import blackPawn from '../assets/pawn-black.svg?url';
+import pawn from '../assets/pawn-original.svg?url';
 import './style.css';
 
 function startingPosition(): Position {
@@ -24,7 +23,11 @@ async function main() {
   let position = startingPosition();
   const board = await createChessboard(host, {
     assetUrl,
-    pieceAssets:{wp:whitePawn,bp:blackPawn},
+    pieceAssets:{wp:pawn,bp:pawn},
+    pieceStyles:{
+      wp:{color:'#f4dfb0',outline:true,outlineColor:'#12161c',outlineWidth:2,scale:1},
+      bp:{color:'#4399ad',outline:true,outlineColor:'#12161c',outlineWidth:2,scale:1},
+    },
     position,
     onMoveRequest(request) {
       const moving = position.find(piece=>piece.id===request.pieceId);

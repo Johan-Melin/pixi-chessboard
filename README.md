@@ -74,6 +74,18 @@ Give the host a width and square aspect ratio, for example `#board { width: min(
 
 Custom piece artwork can override individual sprites using `pieceAssets: { wp: whitePawnUrl, bp: blackPawnUrl }`. Keys combine side (`w`/`b`) and kind (`p`, `n`, `b`, `r`, `q`, `k`). SVG and other browser image formats work; missing entries use the original sheet. Transparent margins are trimmed before scaling, and pointer hit testing uses the replacement's alpha mask. SVG files load as images, rather than being inserted into the page. Included `assets/pawn-white.svg` and `assets/pawn-black.svg` use the user-provided pawn geometry, recolored with a dark outer outline.
 
+For styling through code, use the unchanged `assets/pawn-original.svg` for both sides and configure `pieceStyles`:
+
+```ts
+pieceAssets: { wp: pawnUrl, bp: pawnUrl },
+pieceStyles: {
+  wp: { color: '#f4dfb0', outline: true, outlineColor: '#12161c', outlineWidth: 2, scale: 1 },
+  bp: { color: '#4399ad', outline: true, outlineColor: '#12161c', outlineWidth: 2, scale: 1 },
+},
+```
+
+`color` replaces the image fill; omit it to keep the source colors. `outline` defaults to false; `outlineColor` defaults to `#12161c` and `outlineWidth` to 2. Width is measured in board pixels before viewport scaling (a square is 85.5 units). `scale` multiplies the default piece height, preserving proportions; use 0.85 for smaller pieces or 1.1 for larger ones. Styles are applied once at board creation, without modifying the SVG. They also work on the fallback sprites when only `pieceStyles` is provided. Fill and outline are rendered from the combined silhouette, so overlapping SVG primitives do not gain internal seams. Existing shadows, animation, removal effects, and hit testing use the resulting artwork. Edit `playground/main.ts` for immediate style previews.
+
 - Positions are matched by stable ID. Removed IDs flash and fragment. The renderer never removes a piece simply because the pointer was dropped on it.
 - Green/amber drop highlights indicate empty/occupied squares, not legality. Allowed-move and threat indicators remain deferred.
 - Dust stays at the landing location. Reset with `animate: false` clears transient effects.

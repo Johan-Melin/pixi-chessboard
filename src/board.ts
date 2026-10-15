@@ -2,8 +2,12 @@ import { Application, ColorMatrixFilter, Container, Graphics, Rectangle, Sprite,
 import { copyPosition } from './position.js';
 import type { BoardOptions, Chessboard, BoardPiece, Position, Square } from './types.js';
 import { BoardEffects } from './effects.js';
+import { prepareArtwork } from './artwork.js';
+import type { PieceKey } from './types.js';
 
 type Kind = 'p' | 'n' | 'b' | 'r' | 'q' | 'k';
+const square=85.5;
+const heights:Record<Kind,number>={p:1.00,r:1.05,n:1.10,b:1.12,q:1.17,k:1.22};
 const frames: Record<string, [number, number, number, number]> = {
   wp:[765,251,140,209], wn:[914,209,163,251], wb:[1089,187,148,273],
   wr:[1250,205,162,255], wq:[1424,149,145,311], wk:[1582,95,161,366],
@@ -22,16 +26,14 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
   ctx.drawImage(image,0,0);
   const pixels=ctx.getImageData(0,0,image.width,image.height).data;
   // Decode before mounting, so invalid custom artwork cannot leave a partial board.
-  const customImages=await Promise.all(Object.entries(options.pieceAssets??{}).map(async([key,url])=>{
+  const artworkKeys=new Set([...Object.keys(options.pieceAssets??{}),...Object.keys(options.pieceStyles??{})]);
+  const customImages=await Promise.all([...artworkKeys].map(async key=>{
     if(!Object.hasOwn(frames,key))throw new TypeError(`Unknown piece artwork key: ${key}`);
-    const custom=new Image();custom.crossOrigin='anonymous';custom.src=url!;await custom.decode();
-    const canvas=document.createElement('canvas');canvas.width=custom.naturalWidth;canvas.height=custom.naturalHeight;
-    const context=canvas.getContext('2d',{willReadFrequently:true})!;context.drawImage(custom,0,0);
-    const alpha=context.getImageData(0,0,canvas.width,canvas.height).data;
-    let left=canvas.width,top=canvas.height,right=-1,bottom=-1;
-    for(let y=0;y<canvas.height;y++)for(let x=0;x<canvas.width;x++)if(alpha[(y*canvas.width+x)*4+3]>0){left=Math.min(left,x);top=Math.min(top,y);right=Math.max(right,x);bottom=Math.max(bottom,y);}
-    if(right<0)throw new TypeError(`Piece artwork is fully transparent: ${key}`);
-    return {key,image:custom,pixels:alpha,width:canvas.width,bounds:[left,top,right-left+1,bottom-top+1] as [number,number,number,number]};
+    const url=options.pieceAssets?.[key as PieceKey];
+    let custom=image;
+    if(url){custom=new Image();custom.crossOrigin='anonymous';custom.src=url;await custom.decode();}
+    const rect=url?[0,0,custom.naturalWidth,custom.naturalHeight] as const:frames[key];
+    return {key,...prepareArtwork(custom,rect,options.pieceStyles?.[key as PieceKey]??{},square*heights[key[1] as Kind])};
   }));
   const app=new Application();
   await app.init({backgroundAlpha:0,antialias:false,resolution:window.devicePixelRatio||1,autoDensity:true,autoStart:false,preference:'webgl'});
@@ -63,7 +65,7 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
   const frame = new Sprite(crop([25,81,716,724]));
   frame.width=720; frame.height=720;
   scene.addChild(frame);
-  const inset=18, square=85.5;
+  const inset=18;
   // Sample clean interiors of the supplied tiles, retaining their baked-in scanlines.
   const light=crop([45,103,75,78]), dark=crop([128,103,76,78]);
   for(let row=0;row<8;row++) for(let col=0;col<8;col++) {
@@ -80,7 +82,6 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
   scene.addChild(effects.layer);
   // Give each silhouette a useful tile-sized presence, rather than shrinking
   // every piece to accommodate the unusually tall king in the source sheet.
-  const heights:Record<Kind,number>={p:1.00,r:1.05,n:1.10,b:1.12,q:1.17,k:1.22};
   type Pose={y:number;xScale:number;yScale:number};
   type Keyframe=Pose & {at:number};
   type Actor={id:string;data:BoardPiece;row:number;col:number;root:Container;visual:Container;sprite:Sprite;shadow:Graphics;filter:ColorMatrixFilter;brightness:number;pose:Pose;
@@ -98,7 +99,7 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
     const visual=new Container({label:'visual'});
     const sprite=new Sprite(pieceTextures[side+kind]);
     sprite.anchor.set(0.5,1);
-    sprite.scale.set(square*heights[kind]/sprite.texture.height);
+    sprite.scale.set(square*heights[kind]*(options.pieceStyles?.[(side+kind) as PieceKey]?.scale??1)/sprite.texture.height);
     // Stepped ground shadow stays independent of the visual for future lifting.
     const radius=sprite.width*0.53;
     const shadow=new Graphics({label:'ground-shadow'});

@@ -15,7 +15,9 @@
     "./assets/pawn.svg": "./assets/pawn.svg",
     "./assets/rook.svg": "./assets/rook.svg",
     "./assets/knight.svg": "./assets/knight.svg",
-    "./assets/bishop.svg": "./assets/bishop.svg"
+    "./assets/bishop.svg": "./assets/bishop.svg",
+    "./assets/queen.svg": "./assets/queen.svg",
+    "./assets/king.svg": "./assets/king.svg"
   },
   "files": ["dist", "assets", "README.md"],
   "scripts": {

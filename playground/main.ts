@@ -4,6 +4,8 @@ import pawn from '../assets/pawn.svg?url';
 import rook from '../assets/rook.svg?url';
 import knight from '../assets/knight.svg?url';
 import bishop from '../assets/bishop.svg?url';
+import queen from '../assets/queen.svg?url';
+import king from '../assets/king.svg?url';
 import './style.css';
 
 function startingPosition(): Position {
@@ -30,10 +32,10 @@ async function main() {
     assetUrl,
     boardColors:{light:'#f4dfb0',dark:'#a85e65'},
     scanlines:true,
-    pieceAssets:{wp:pawn,bp:pawn,wr:rook,br:rook,wn:knight,bn:knight,wb:bishop,bb:bishop},
+    pieceAssets:{wp:pawn,bp:pawn,wr:rook,br:rook,wn:knight,bn:knight,wb:bishop,bb:bishop,wq:queen,bq:queen,wk:king,bk:king},
     pieceStyles:{
-      wp:whiteStyle,wr:whiteStyle,wn:whiteStyle,wb:whiteStyle,
-      bp:blackStyle,br:blackStyle,bn:blackStyle,bb:blackStyle,
+      wp:whiteStyle,wr:whiteStyle,wn:whiteStyle,wb:whiteStyle,wq:whiteStyle,wk:whiteStyle,
+      bp:blackStyle,br:blackStyle,bn:blackStyle,bb:blackStyle,bq:blackStyle,bk:blackStyle,
     },
     position,
     onMoveRequest(request) {

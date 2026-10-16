@@ -94,12 +94,14 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
     travel?:{start:number;duration:number;fromX:number;fromY:number;toX:number;toY:number};
     animation?:{start:number;keys:Keyframe[]}};
   const actors:Actor[]=[];
+  // Depth follows the ground position, never the visual's lift or squash.
+  function updateDepth(actor:Actor){actor.root.zIndex=actor.root.y*1000+actor.root.x;}
   function place(data:BoardPiece) {
     const {id,side,kind}=data;
     const col=data.square.charCodeAt(0)-97,row=8-Number(data.square[1]);
     const root=new Container({label:id});
     root.position.set(inset+(col+0.5)*square,inset+(row+0.82)*square);
-    root.zIndex=row*8+col;
+    root.zIndex=root.y*1000+root.x;
     const visual=new Container({label:'visual'});
     const sprite=new Sprite(pieceTextures[side+kind]);
     sprite.anchor.set(0.5,1);
@@ -176,6 +178,7 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
     held.velocityY=(y-held.root.y)/elapsed;
     held.lastMotion=now;
     held.root.position.set(x,y);
+    updateDepth(held);
     drag.candidate=cellAt(event);
     feedback();
   }
@@ -193,7 +196,6 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
     drag={startClientX:event.clientX,startClientY:event.clientY,offsetX:p.x-actor.root.x,offsetY:p.y-actor.root.y,active:false};
     actor.travel=undefined;actor.impact=undefined;actor.velocityX=0;actor.velocityY=0;actor.lastMotion=performance.now();
     app.canvas.setPointerCapture(event.pointerId);
-    actor.root.zIndex=1000;
     animate(actor,[{at:45,y:0,xScale:1.07,yScale:0.93},{at:165,y:-square*0.15,xScale:0.98,yScale:1.04}]);
     feedback();
   });
@@ -203,9 +205,7 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
     if(oldId!==undefined&&app.canvas.hasPointerCapture(oldId))app.canvas.releasePointerCapture(oldId);
   }
   function land(actor:Actor,duration:number) {
-    // Only a held piece floats above the board. Landing and returning pieces
-    // immediately rejoin the depth order of their destination square.
-    actor.root.zIndex=actor.row*8+actor.col;
+    updateDepth(actor);
     actor.velocityX=0;actor.velocityY=0;
     const target=homePosition(actor);
     const now=performance.now(),impactAt=now+duration+80;
@@ -247,7 +247,7 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
         actor.stretch=0;actor.tilt=0;actor.velocityX=0;actor.velocityY=0;
         actor.visual.position.set(0,0);actor.visual.scale.set(1);actor.visual.rotation=0;
         actor.shadow.scale.set(1);actor.shadow.alpha=1;
-        const p=homePosition(actor);actor.root.position.set(p.x,p.y);actor.root.zIndex=actor.row*8+actor.col;
+        const p=homePosition(actor);actor.root.position.set(p.x,p.y);updateDepth(actor);
       }
     }
     position=next;
@@ -321,7 +321,7 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
       actor.visual.rotation=actor.tilt;
       const lift=Math.max(0,-y/(square*.15));
       actor.shadow.scale.set(1+lift*.18,1+lift*.08);actor.shadow.alpha=1-lift*.3;
-      if(actor!==held)actor.root.zIndex=actor.row*8+actor.col;
+      updateDepth(actor);
       const target=(held??hovered)===actor?1.22:1;
       actor.brightness+=(target-actor.brightness)*(1-Math.exp(-ticker.deltaMS/65));
       actor.filter.brightness(actor.brightness,false);

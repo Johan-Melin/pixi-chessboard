@@ -52,24 +52,25 @@ test('playground keeps free movement, capture effects, and reset',async({page})=
   expect(errors).toEqual([]);
 });
 
-test('a landing piece stays behind the overlapping piece in the lower row',async({page})=>{
+for(const phase of ['pickup','drag','landing'] as const)test(`a piece stays behind the lower row during ${phase}`,async({page})=>{
   await ready(page);
-  await page.evaluate(async()=>{
+  await page.evaluate(async phase=>{
     const api=(window as any).playground;api.board.destroy();
     const artwork='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="60" height="100"><path fill="white" d="M0 0h60v100H0z"/></svg>');
-    let pieces=[{id:'back',square:'d4',kind:'k',side:'w'},{id:'front',square:'d2',kind:'k',side:'b'}];
+    let pieces=[{id:'back',square:phase==='pickup'?'d3':'d4',kind:'k',side:'w'},{id:'front',square:'d2',kind:'k',side:'b'}];
     api.board=await api.createChessboard(document.querySelector('#board'),{
       assetUrl:api.assetUrl,scanlines:false,position:pieces,
       pieceAssets:{wk:artwork,bk:artwork},pieceStyles:{wk:{color:'#ff0000'},bk:{color:'#0000ff'}},
       onMoveRequest:(request:any)=>pieces=pieces.map(piece=>piece.id===request.pieceId?{...piece,square:request.to}:piece),
     });
-  });
+  },phase);
   const clockStart=new Date();
   await page.clock.install({time:clockStart});await page.clock.pauseAt(new Date(clockStart.getTime()+1000));
-  const from=await cell(page,'d4'),to=await cell(page,'d3');
+  const from=await cell(page,phase==='pickup'?'d3':'d4'),to=await cell(page,'d3');
   await page.mouse.move(from.x,from.y);await page.mouse.down();await page.clock.runFor(180);
-  await page.mouse.move(to.x,to.y,{steps:4});await page.mouse.up();await page.mouse.move(0,0);
-  await page.clock.runFor(120); // Still lifted and settling, before the landing finishes.
+  if(phase!=='pickup')await page.mouse.move(to.x,to.y,{steps:4});
+  if(phase==='landing'){await page.mouse.up();await page.mouse.move(0,0);}
+  await page.clock.runFor(120); // Sample while lifted or still settling.
   const rect=(await page.locator('#board canvas').boundingBox())!,scale=rect.width/800;
   const overlap={x:Math.round(rect.x+(58+3.5*85.5)*scale),y:Math.round(rect.y+(58+6.82*85.5-1.22*85.5+4)*scale),width:1,height:1};
   const pixel=await page.screenshot({clip:overlap});
@@ -80,7 +81,7 @@ test('a landing piece stays behind the overlapping piece in the lower row',async
     return Array.from(ctx.getImageData(0,0,1,1).data);
   },pixel.toString('base64'));
   expect(color[0]).toBeLessThan(30);expect(color[2]).toBeGreaterThan(220);
-  expect((await position(page)).find((piece:any)=>piece.id==='back').square).toBe('d3');
+  expect((await position(page)).find((piece:any)=>piece.id==='back').square).toBe(phase==='drag'?'d4':'d3');
 });
 
 test('host may reject without changing the position or capturing',async({page})=>{

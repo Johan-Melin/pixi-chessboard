@@ -120,9 +120,11 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
     actors.push(actor);return actor;
   }
   for(const piece of position)place(piece);
-  let hovered:Actor|undefined, held:Actor|undefined, pointerId:number|undefined;
+  let hovered:Actor|undefined, held:Actor|undefined, selected:Actor|undefined, pointerId:number|undefined;
+  let moveTargets:readonly Square[]=[];
   type Cell={row:number;col:number};
-  let drag:{startClientX:number;startClientY:number;offsetX:number;offsetY:number;active:boolean;candidate?:Cell}|undefined;
+  const squareAt=(cell:Cell)=>(String.fromCharCode(97+cell.col)+(8-cell.row)) as Square;
+  let drag:{startClientX:number;startClientY:number;offsetX:number;offsetY:number;active:boolean;candidate?:Cell;clickDestination?:Cell;toggleSelected?:boolean}|undefined;
   const homePosition=(actor:Actor)=>({x:inset+(actor.col+.5)*square,y:inset+(actor.row+.82)*square});
   const occupant=(cell:Cell,actor:Actor)=>actors.find(other=>other!==actor&&other.row===cell.row&&other.col===cell.col);
   const reduced=window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -155,10 +157,17 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
     if(col>=0&&col<8&&row>=0&&row<8)return actors.find(actor=>actor.col===col&&actor.row===row);
   }
   function feedback() {
-    const active=held??hovered;
+    const active=held??selected??hovered;
     highlight.clear();
+    for(const target of moveTargets){
+      const col=target.charCodeAt(0)-97,row=8-Number(target[1]);
+      const x=inset+col*square,y=inset+row*square;
+      if(actors.some(actor=>actor.data.square===target))highlight.roundRect(x+5,y+5,square-10,square-10,8).stroke({color:0xa8d9b0,width:4,alpha:.95});
+      else highlight.circle(x+square/2,y+square/2,10).fill({color:0x182b24,alpha:.45});
+    }
+    app.canvas.setAttribute('aria-label',selected?`Selected ${selected.data.square}. Allowed squares: ${moveTargets.join(', ')||'none'}.`:'Chessboard');
     if(active)highlight.rect(inset+active.col*square+2,inset+active.row*square+2,square-4,square-4)
-      .fill({color:0xeacb83,alpha:held?0.22:0.13}).stroke({color:0xf7df9b,width:2,alpha:0.85});
+      .fill({color:0xeacb83,alpha:held||selected?0.22:0.13}).stroke({color:0xf7df9b,width:2,alpha:0.85});
     if(held&&drag?.active&&drag.candidate){
       const {row,col}=drag.candidate;
       const color=occupant(drag.candidate,held)?0xebad77:0xa8d9b0;
@@ -190,10 +199,23 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
   listen(app.canvas,'pointerleave',()=>{if(!held){hovered=undefined;feedback();}});
   listen(app.canvas,'pointerdown',event=>{
     if(pending||!options.onMoveRequest||pointerId!==undefined||event.button!==0||!event.isPrimary)return;
-    const actor=hit(event);if(!actor)return;
+    const cell=cellAt(event),hitActor=hit(event);
+    const clickDestination=selected&&cell&&squareAt(cell)!==selected.data.square&&
+      (moveTargets.includes(squareAt(cell))||!hitActor||hitActor===selected||hitActor.data.side!==selected.data.side)?cell:undefined;
+    const actor=clickDestination?selected:hitActor;if(!actor)return;
+    const toggleSelected=selected===actor&&!clickDestination;
+    if(actor!==selected){
+      let targets:readonly Square[]|null;
+      try{
+        targets=options.getMoveTargets?.({...actor.data})??(options.getMoveTargets?null:[]);
+        if(targets===null)return;
+        if(targets.some(target=>! /^[a-h][1-8]$/.test(target)))throw new TypeError('Invalid move target square.');
+      }catch(error){report(error);return;}
+      clearSelection();selected=actor;moveTargets=[...new Set(targets)];
+    }
     event.preventDefault();pointerId=event.pointerId;held=actor;hovered=actor;
     const p=boardPoint(event);
-    drag={startClientX:event.clientX,startClientY:event.clientY,offsetX:p.x-actor.root.x,offsetY:p.y-actor.root.y,active:false};
+    drag={startClientX:event.clientX,startClientY:event.clientY,offsetX:p.x-actor.root.x,offsetY:p.y-actor.root.y,active:false,clickDestination,toggleSelected};
     actor.travel=undefined;actor.impact=undefined;actor.velocityX=0;actor.velocityY=0;actor.lastMotion=performance.now();
     app.canvas.setPointerCapture(event.pointerId);
     animate(actor,[{at:45,y:0,xScale:1.07,yScale:0.93},{at:165,y:-square*0.15,xScale:0.98,yScale:1.04}]);
@@ -203,6 +225,10 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
     const oldId=pointerId;
     held=undefined;pointerId=undefined;drag=undefined;hovered=undefined;
     if(oldId!==undefined&&app.canvas.hasPointerCapture(oldId))app.canvas.releasePointerCapture(oldId);
+  }
+  function clearSelection(returnHome=true){
+    const actor=selected;selected=undefined;moveTargets=[];
+    if(actor&&returnHome)land(actor,0);
   }
   function land(actor:Actor,duration:number) {
     updateDepth(actor);
@@ -260,15 +286,17 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
     if(pointerId===undefined||(event&&event.pointerId!==pointerId))return;
     const actor=held!;
     if(event?.type==='pointerup')moveHeld(event);
-    const wasDragging=drag?.active;
-    const destination=event?.type==='pointerup'&&wasDragging?cellAt(event):undefined;
+    const wasDragging=drag?.active,toggleSelected=drag?.toggleSelected;
+    const destination=event?.type==='pointerup'?(wasDragging?cellAt(event):drag?.clickDestination):undefined;
     detachPointer();
     actor.velocityX=0;actor.velocityY=0;
+    if(event?.type==='pointerup'&&!wasDragging&&!destination&&!toggleSelected){feedback();return;}
+    clearSelection(false);
     if(!destination||(actor.row===destination.row&&actor.col===destination.col)){
       land(actor,wasDragging?180:0);feedback();return;
     }
     pending=true;const requestRevision=++revision;
-    const request=Object.freeze({pieceId:actor.id,from:actor.data.square,to:(String.fromCharCode(97+destination.col)+(8-destination.row)) as Square});
+    const request=Object.freeze({pieceId:actor.id,from:actor.data.square,to:squareAt(destination)});
     feedback();
     const finish=(result:Position|null)=>{
       if(destroyed||requestRevision!==revision)return;
@@ -291,8 +319,10 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
   listen(app.canvas,'pointerup',release);
   listen(app.canvas,'pointercancel',release);
   listen(app.canvas,'lostpointercapture',release);
-  listen(window,'blur',()=>{release();hovered=undefined;feedback();});
-  listen(document,'visibilitychange',()=>{if(document.hidden){release();hovered=undefined;feedback();}});
+  listen(window,'blur',()=>{release();clearSelection();hovered=undefined;feedback();});
+  listen(document,'visibilitychange',()=>{if(document.hidden){release();clearSelection();hovered=undefined;feedback();}});
+  listen(document,'pointerdown',event=>{if(event.target!==app.canvas){release();clearSelection();feedback();}});
+  listen(window,'keydown',event=>{if(event.key==='Escape'){release();clearSelection();feedback();}});
   app.ticker.add(ticker=>{
     const now=performance.now();
     for(const actor of actors){
@@ -322,7 +352,7 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
       const lift=Math.max(0,-y/(square*.15));
       actor.shadow.scale.set(1+lift*.18,1+lift*.08);actor.shadow.alpha=1-lift*.3;
       updateDepth(actor);
-      const target=(held??hovered)===actor?1.22:1;
+      const target=(held??selected??hovered)===actor?1.22:1;
       actor.brightness+=(target-actor.brightness)*(1-Math.exp(-ticker.deltaMS/65));
       actor.filter.brightness(actor.brightness,false);
       if(actor.impact&&now>=actor.impact.at){
@@ -357,12 +387,12 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
     setPosition(next,settings={}){
       if(destroyed)throw new Error('Chessboard has been destroyed.');
       const validated=copyPosition(next); // Validate before disturbing current state.
-      revision++;pending=false;detachPointer();
+      revision++;pending=false;clearSelection(false);detachPointer();
       applyPosition(validated,settings.animate!==false);feedback();app.render();
     },
     destroy(){
       if(destroyed)return;
-      destroyed=true;revision++;pending=false;detachPointer();
+      destroyed=true;revision++;pending=false;clearSelection(false);detachPointer();
       observer.disconnect();events.abort();effects.clear();
       for(const actor of actors)actor.filter.destroy();
       app.destroy({removeView:true},{children:true});

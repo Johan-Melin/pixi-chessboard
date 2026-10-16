@@ -72,6 +72,10 @@ Give the host a width and square aspect ratio, for example `#board { width: min(
 
 ## Visual behavior
 
+Pieces support both dragging and click/tap selection followed by clicking/tapping a destination. Click the selected piece again, press Escape, or click outside the canvas to cancel. Selection clears when the host supplies a new position.
+
+Supply `getMoveTargets(piece)` to return an array of destination squares for selection markings. Empty destinations get dots and occupied destinations get outlines. Return `null` to prevent selecting a piece, or `[]` to allow selection without destinations. The callback runs when a piece is selected; all rules and turn checks belong to the host. Markings are hints only: `onMoveRequest` must still validate the move. Without this callback, pieces remain freely selectable and no destination markings appear.
+
 The squares and border are drawn in code. Set `boardColors: { light: '#f4dfb0', dark: '#a85e65' }` to use your own CSS colors. A light square is at a8. `scanlines` defaults to `true`; set it to `false` to disable the subtle horizontal overlay. Lines stay fixed across the canvas as pieces move and animate. The asset sheet is still used for pieces without custom artwork.
 
 Custom piece artwork can override individual sprites using `pieceAssets: { wp: whitePawnUrl, bp: blackPawnUrl }`. Keys combine side (`w`/`b`) and kind (`p`, `n`, `b`, `r`, `q`, `k`). SVG and other browser image formats work; missing entries use the original sheet. Transparent margins are trimmed before scaling, and pointer hit testing uses the replacement's alpha mask. SVG files load as images, rather than being inserted into the page. Included `assets/pawn-white.svg` and `assets/pawn-black.svg` use the user-provided pawn geometry, recolored with a dark outer outline.

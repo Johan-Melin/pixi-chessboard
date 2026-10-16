@@ -39,6 +39,8 @@ export interface BoardOptions {
   /** Subtle horizontal overlay across the board and pieces. Default: true. */
   scanlines?: boolean;
   position?: Position;
+  /** Host-supplied destination hints; null prevents selecting that piece. No rules are inferred. */
+  getMoveTargets?: (piece: BoardPiece) => readonly Square[] | null;
   /** Return the entire next position to accept; null to reject. No handler means read-only. */
   onMoveRequest?: (request: MoveRequest) => Position | null | Promise<Position | null>;
   /** Callback errors and invalid returned positions reject the move and are reported here. */

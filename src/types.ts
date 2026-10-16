@@ -2,7 +2,7 @@ export type PieceKind = 'p' | 'n' | 'b' | 'r' | 'q' | 'k';
 export type PieceSide = 'w' | 'b';
 export type PieceKey = `${PieceSide}${PieceKind}`;
 export interface PieceStyle {
-  /** Replaces the fill across the image silhouette. Omit to preserve the source colors. */
+  /** Tints the artwork while preserving darker shading. Omit to preserve source colors. */
   color?: string;
   outline?: boolean;
   outlineColor?: string;

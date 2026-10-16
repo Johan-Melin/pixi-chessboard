@@ -103,6 +103,27 @@ test('one unmodified SVG supports independent fill, outline toggle, and sizing',
   expect(output.thick.height).toBeGreaterThan(output.outlined.height);expect(output.invalid).toEqual([true,true,true]);
 });
 
+test('tint preserves SVG shading, transparency, and untinted artwork',async({page})=>{
+  await ready(page);
+  const samples=await page.evaluate(async()=>{
+    const {prepareArtwork}=await import('/src/artwork.ts');
+    const image=new Image();
+    image.src='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="30" height="10"><path fill="white" d="M0 0h10v10H0z"/><path fill="#808080" d="M10 0h10v10H10z"/></svg>');
+    await image.decode();
+    const sample=(color?:string)=>{
+      const result=prepareArtwork(image,[0,0,30,10],{color},85.5);
+      const pixel=(x:number,y:number)=>Array.from(result.pixels.slice((y*result.width+x)*4,(y*result.width+x)*4+4));
+      return {light:pixel(5,5),shade:pixel(15,5),transparent:pixel(0,0)};
+    };
+    return {tinted:sample('#4399ad'),original:sample()};
+  });
+  expect(samples.tinted.light).toEqual([67,153,173,255]);
+  for(let channel=0;channel<3;channel++)expect(samples.tinted.shade[channel]).toBeCloseTo(samples.tinted.light[channel]*128/255,0);
+  expect(samples.tinted.shade[3]).toBe(255);
+  expect(samples.tinted.transparent[3]).toBe(0);
+  expect(samples.original.shade).toEqual([128,128,128,255]);
+});
+
 test('pending decisions do not mutate the board; later acceptance applies',async({page})=>{
   await ready(page);await fixture(page,'pending');await drag(page,'d2','d7');
   expect((await position(page))[0].square).toBe('d2');

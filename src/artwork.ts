@@ -23,7 +23,15 @@ export function prepareArtwork(image:HTMLImageElement,rect:Rect,style:PieceStyle
   const pad=Math.ceil(radius)+1;
   const fill=canvas(w,h),fillCtx=fill.getContext('2d')!;
   fillCtx.drawImage(source,left,top,w,h,0,0,w,h);
-  if(style.color){fillCtx.globalCompositeOperation='source-in';fillCtx.fillStyle=style.color;fillCtx.fillRect(0,0,w,h);}
+  if(style.color){
+    // Tint the original artwork: white takes the chosen color, while darker
+    // details keep their shading. Mask afterward to preserve transparent edges.
+    fillCtx.globalCompositeOperation='multiply';
+    fillCtx.fillStyle=style.color;fillCtx.fillRect(0,0,w,h);
+    fillCtx.globalCompositeOperation='destination-in';
+    fillCtx.drawImage(source,left,top,w,h,0,0,w,h);
+    fillCtx.globalCompositeOperation='source-over';
+  }
   const rendered=canvas(w+2*pad,h+2*pad),out=rendered.getContext('2d',{willReadFrequently:true})!;
   if(radius){
     // A filled silhouette is stamped around the contour; internal SVG seams

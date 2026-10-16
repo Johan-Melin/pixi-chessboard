@@ -26,8 +26,8 @@ async function main() {
   const status = document.querySelector<HTMLElement>('#status')!;
   // The controller owns the position and decides how a move changes it.
   let position = startingPosition();
-  const whiteStyle={color:'#f4dfb0',outline:true,outlineColor:'#12161c',outlineWidth:2,scale:1};
-  const blackStyle={color:'#4399ad',outline:true,outlineColor:'#12161c',outlineWidth:2,scale:1};
+  const whiteStyle={color:'#f4dfb0',outline:true,outlineColor:'#12161c',outlineWidth:8,scale:.7};
+  const blackStyle={color:'#4399ad',outline:true,outlineColor:'#12161c',outlineWidth:8,scale:.7};
   const board = await createChessboard(host, {
     assetUrl,
     boardColors:{light:'#f4dfb0',dark:'#a85e65'},

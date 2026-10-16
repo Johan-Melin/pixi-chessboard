@@ -203,6 +203,9 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
     if(oldId!==undefined&&app.canvas.hasPointerCapture(oldId))app.canvas.releasePointerCapture(oldId);
   }
   function land(actor:Actor,duration:number) {
+    // Only a held piece floats above the board. Landing and returning pieces
+    // immediately rejoin the depth order of their destination square.
+    actor.root.zIndex=actor.row*8+actor.col;
     actor.velocityX=0;actor.velocityY=0;
     const target=homePosition(actor);
     const now=performance.now(),impactAt=now+duration+80;
@@ -237,7 +240,7 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
       actor.data={...data};actor.col=data.square.charCodeAt(0)-97;actor.row=8-Number(data.square[1]);
       actor.impact=undefined;
       if(animated){
-        if(moved){actor.root.zIndex=1000;actor.pose={y:-square*.15,xScale:.98,yScale:1.04};land(actor,100);}
+        if(moved){actor.pose={y:-square*.15,xScale:.98,yScale:1.04};land(actor,100);}
         else if(actor.pose.y!==0||actor.travel||actor.animation)land(actor,180);
       }else{
         actor.animation=undefined;actor.travel=undefined;actor.pose={...rest};
@@ -318,7 +321,7 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
       actor.visual.rotation=actor.tilt;
       const lift=Math.max(0,-y/(square*.15));
       actor.shadow.scale.set(1+lift*.18,1+lift*.08);actor.shadow.alpha=1-lift*.3;
-      if(actor!==held&&!actor.animation)actor.root.zIndex=actor.row*8+actor.col;
+      if(actor!==held)actor.root.zIndex=actor.row*8+actor.col;
       const target=(held??hovered)===actor?1.22:1;
       actor.brightness+=(target-actor.brightness)*(1-Math.exp(-ticker.deltaMS/65));
       actor.filter.brightness(actor.brightness,false);

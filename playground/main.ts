@@ -1,6 +1,9 @@
 import { createChessboard, type Position, type PieceKind, type Square } from '../src';
 import assetUrl from '../assets/retro-chess-assets.png?url';
-import pawn from '../assets/pawn-original.svg?url';
+import pawn from '../assets/pawn.svg?url';
+import rook from '../assets/rook.svg?url';
+import knight from '../assets/knight.svg?url';
+import bishop from '../assets/bishop.svg?url';
 import './style.css';
 
 function startingPosition(): Position {
@@ -21,14 +24,16 @@ async function main() {
   const status = document.querySelector<HTMLElement>('#status')!;
   // The controller owns the position and decides how a move changes it.
   let position = startingPosition();
+  const whiteStyle={color:'#f4dfb0',outline:true,outlineColor:'#12161c',outlineWidth:2,scale:1};
+  const blackStyle={color:'#4399ad',outline:true,outlineColor:'#12161c',outlineWidth:2,scale:1};
   const board = await createChessboard(host, {
     assetUrl,
     boardColors:{light:'#f4dfb0',dark:'#a85e65'},
     scanlines:true,
-    pieceAssets:{wp:pawn,bp:pawn},
+    pieceAssets:{wp:pawn,bp:pawn,wr:rook,br:rook,wn:knight,bn:knight,wb:bishop,bb:bishop},
     pieceStyles:{
-      wp:{color:'#f4dfb0',outline:true,outlineColor:'#12161c',outlineWidth:2,scale:1},
-      bp:{color:'#4399ad',outline:true,outlineColor:'#12161c',outlineWidth:2,scale:1},
+      wp:whiteStyle,wr:whiteStyle,wn:whiteStyle,wb:whiteStyle,
+      bp:blackStyle,br:blackStyle,bn:blackStyle,bb:blackStyle,
     },
     position,
     onMoveRequest(request) {

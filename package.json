@@ -11,7 +11,11 @@
     "./assets/retro-chess-assets.png": "./assets/retro-chess-assets.png",
     "./assets/pawn-white.svg": "./assets/pawn-white.svg",
     "./assets/pawn-black.svg": "./assets/pawn-black.svg",
-    "./assets/pawn-original.svg": "./assets/pawn-original.svg"
+    "./assets/pawn-original.svg": "./assets/pawn-original.svg",
+    "./assets/pawn.svg": "./assets/pawn.svg",
+    "./assets/rook.svg": "./assets/rook.svg",
+    "./assets/knight.svg": "./assets/knight.svg",
+    "./assets/bishop.svg": "./assets/bishop.svg"
   },
   "files": ["dist", "assets", "README.md"],
   "scripts": {

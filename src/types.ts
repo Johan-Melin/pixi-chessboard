@@ -12,6 +12,10 @@ export interface PieceStyle {
   scale?: number;
 }
 export type Square = `${'a'|'b'|'c'|'d'|'e'|'f'|'g'|'h'}${1|2|3|4|5|6|7|8}`;
+export interface SquareHighlight {
+  readonly square: Square;
+  readonly color: string;
+}
 
 /** Stable IDs let the renderer follow pieces between supplied positions. */
 export interface BoardPiece {
@@ -51,6 +55,8 @@ export interface Chessboard {
   readonly canvas: HTMLCanvasElement;
   /** Returns a copy. The board never mutates positions owned by the application. */
   getPosition(): Position;
+  /** Replaces host-supplied square highlights. Pass [] to clear. */
+  setSquareHighlights(highlights: readonly SquareHighlight[]): void;
   /** Replaces the position and supersedes pending requests. animate:false also clears effects. */
   setPosition(position: Position, options?: { animate?: boolean }): void;
   /** Idempotent; removes the canvas, listeners, effects, textures, observer, and render loop. */

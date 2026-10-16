@@ -72,6 +72,8 @@ Give the host a width and square aspect ratio, for example `#board { width: min(
 
 ## Visual behavior
 
+Use `board.setSquareHighlights([{ square: 'e1', color: '#ef705f' }])` to mark squares beneath pieces. Pass `[]` to clear the marks. These are display-only, remain until replaced, and are independent of move-target markings. The host decides what they mean, for example a king in check.
+
 Pieces support both dragging and click/tap selection followed by clicking/tapping a destination. Click the selected piece again, press Escape, or click outside the canvas to cancel. Selection clears when the host supplies a new position.
 
 Supply `getMoveTargets(piece)` to return an array of destination squares for selection markings. Empty destinations get dots and occupied destinations get outlines. Return `null` to prevent selecting a piece, or `[]` to allow selection without destinations. The callback runs when a piece is selected; all rules and turn checks belong to the host. Markings are hints only: `onMoveRequest` must still validate the move. Without this callback, pieces remain freely selectable and no destination markings appear.

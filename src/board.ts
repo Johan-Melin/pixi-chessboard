@@ -3,7 +3,7 @@ import { copyPosition } from './position.js';
 import type { BoardOptions, Chessboard, BoardPiece, Position, Square } from './types.js';
 import { BoardEffects } from './effects.js';
 import { prepareArtwork } from './artwork.js';
-import type { PieceKey } from './types.js';
+import type { PieceKey, SquareHighlight } from './types.js';
 
 type Kind = 'p' | 'n' | 'b' | 'r' | 'q' | 'k';
 const square=85.5;
@@ -73,6 +73,8 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
     tiles.rect(inset+col*square,inset+row*square,square,square).fill((row+col)%2===0 ? light : dark);
   }
   scene.addChild(tiles);
+  const squareHighlights=new Graphics({label:'square-highlights',eventMode:'none'});
+  scene.addChild(squareHighlights);
   const highlight=new Graphics({label:'square-highlight'});
   scene.addChild(highlight);
   const pieceLayer=new Container({label:'pieces',sortableChildren:true});
@@ -384,6 +386,17 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
   return {
     canvas:app.canvas,
     getPosition:()=>copyPosition(position),
+    setSquareHighlights(highlights:readonly SquareHighlight[]){
+      if(destroyed)throw new Error('Chessboard has been destroyed.');
+      for(const mark of highlights)if(!/^[a-h][1-8]$/.test(mark.square)||!CSS.supports('color',mark.color))throw new TypeError('Invalid square highlight.');
+      squareHighlights.clear();
+      for(const mark of highlights){
+        const col=mark.square.charCodeAt(0)-97,row=8-Number(mark.square[1]);
+        squareHighlights.roundRect(inset+col*square+3,inset+row*square+3,square-6,square-6,6)
+          .fill({color:mark.color,alpha:.32}).stroke({color:mark.color,width:3,alpha:.95});
+      }
+      app.render();
+    },
     setPosition(next,settings={}){
       if(destroyed)throw new Error('Chessboard has been destroyed.');
       const validated=copyPosition(next); // Validate before disturbing current state.

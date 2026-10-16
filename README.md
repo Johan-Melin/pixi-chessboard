@@ -72,6 +72,8 @@ Give the host a width and square aspect ratio, for example `#board { width: min(
 
 ## Visual behavior
 
+The squares and border are drawn in code. Set `boardColors: { light: '#f4dfb0', dark: '#a85e65' }` to use your own CSS colors. A light square is at a8. `scanlines` defaults to `true`; set it to `false` to disable the subtle horizontal overlay. Lines stay fixed across the canvas as pieces move and animate. The asset sheet is still used for pieces without custom artwork.
+
 Custom piece artwork can override individual sprites using `pieceAssets: { wp: whitePawnUrl, bp: blackPawnUrl }`. Keys combine side (`w`/`b`) and kind (`p`, `n`, `b`, `r`, `q`, `k`). SVG and other browser image formats work; missing entries use the original sheet. Transparent margins are trimmed before scaling, and pointer hit testing uses the replacement's alpha mask. SVG files load as images, rather than being inserted into the page. Included `assets/pawn-white.svg` and `assets/pawn-black.svg` use the user-provided pawn geometry, recolored with a dark outer outline.
 
 For styling through code, use the unchanged `assets/pawn-original.svg` for both sides and configure `pieceStyles`:

@@ -23,6 +23,8 @@ async function main() {
   let position = startingPosition();
   const board = await createChessboard(host, {
     assetUrl,
+    boardColors:{light:'#f4dfb0',dark:'#a85e65'},
+    scanlines:true,
     pieceAssets:{wp:pawn,bp:pawn},
     pieceStyles:{
       wp:{color:'#f4dfb0',outline:true,outlineColor:'#12161c',outlineWidth:2,scale:1},

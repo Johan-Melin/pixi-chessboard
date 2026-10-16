@@ -34,6 +34,10 @@ export interface BoardOptions {
   /** Optional image URLs keyed by side+kind, e.g. wp/bp. Transparent margins are trimmed. */
   pieceAssets?: Partial<Record<PieceKey, string>>;
   pieceStyles?: Partial<Record<PieceKey, PieceStyle>>;
+  /** Square colors as CSS colors. Defaults to warm cream and muted red. */
+  boardColors?: { light?: string; dark?: string };
+  /** Subtle horizontal overlay across the board and pieces. Default: true. */
+  scanlines?: boolean;
   position?: Position;
   /** Return the entire next position to accept; null to reject. No handler means read-only. */
   onMoveRequest?: (request: MoveRequest) => Position | null | Promise<Position | null>;

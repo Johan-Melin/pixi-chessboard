@@ -17,6 +17,9 @@ const frames: Record<string, [number, number, number, number]> = {
 
 export async function createChessboard(host: HTMLElement, options: BoardOptions): Promise<Chessboard> {
   let position=copyPosition(options.position??[]);
+  const light=options.boardColors?.light??'#f4dfb0';
+  const dark=options.boardColors?.dark??'#a85e65';
+  for(const color of [light,dark])if(!CSS.supports('color',color))throw new TypeError(`Invalid board color: ${color}`);
   // Own the image and source per instance; destroying one board cannot break another.
   const image=new Image(); image.crossOrigin='anonymous'; image.src=options.assetUrl;
   await image.decode();
@@ -61,25 +64,26 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
   const scene = new Container({label:'board'});
   app.stage.addChild(scene);
 
-  // The original decorative frame surrounds the reconstructed, evenly spaced tiles.
-  const frame = new Sprite(crop([25,81,716,724]));
-  frame.width=720; frame.height=720;
-  scene.addChild(frame);
   const inset=18;
-  // Sample clean interiors of the supplied tiles, retaining their baked-in scanlines.
-  const light=crop([45,103,75,78]), dark=crop([128,103,76,78]);
+  // Draw the board directly; square colors no longer depend on the asset sheet.
+  const tiles=new Graphics({label:'board-tiles'});
+  tiles.roundRect(0,0,720,720,5).fill(dark);
+  tiles.roundRect(4,4,712,712,3).stroke({color:light,width:3,alpha:.65});
   for(let row=0;row<8;row++) for(let col=0;col<8;col++) {
-    const tile=new Sprite((row+col)%2===0 ? dark : light);
-    tile.position.set(inset+col*square,inset+row*square);
-    tile.width=square; tile.height=square;
-    scene.addChild(tile);
+    tiles.rect(inset+col*square,inset+row*square,square,square).fill((row+col)%2===0 ? light : dark);
   }
+  scene.addChild(tiles);
   const highlight=new Graphics({label:'square-highlight'});
   scene.addChild(highlight);
   const pieceLayer=new Container({label:'pieces',sortableChildren:true});
   scene.addChild(pieceLayer);
   const effects=new BoardEffects();
   scene.addChild(effects.layer);
+  // A fixed screen overlay stays level while pieces lift, stretch, and move.
+  // It has no input handlers and never changes piece hit testing.
+  const scanlines=new Graphics({label:'scanlines',eventMode:'none'});
+  scanlines.visible=options.scanlines!==false;
+  app.stage.addChild(scanlines);
   // Give each silhouette a useful tile-sized presence, rather than shrinking
   // every piece to accommodate the unusually tall king in the source sheet.
   type Pose={y:number;xScale:number;yScale:number};
@@ -335,6 +339,11 @@ export async function createChessboard(host: HTMLElement, options: BoardOptions)
     const scale=size/800;
     scene.scale.set(scale);
     scene.position.set(40*scale,40*scale);
+    scanlines.clear();
+    if(options.scanlines!==false){
+      for(let y=0;y<size;y+=4)scanlines.rect(0,y,size,1);
+      scanlines.fill({color:0x10151b,alpha:.13});
+    }
     app.render();
   }
   const observer=new ResizeObserver(resize);observer.observe(host);
